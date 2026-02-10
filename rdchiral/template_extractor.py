@@ -696,6 +696,7 @@ def get_fragments_for_changed_atoms(
     radius: int = 0,
     category: str = "reactants",
     expansion: Optional[List[str]] = None,
+    no_special_groups: bool = False,
 ) -> Tuple[str, bool, bool]:
     """Given a list of RDKit mols and a list of changed atom tags, this function
     computes the SMILES string of molecular fragments using MolFragmentToSmiles
@@ -714,7 +715,7 @@ def get_fragments_for_changed_atoms(
         symbol_replacements = []
 
         # Are we looking for special reactive groups? (reactants only)
-        if category == "reactants":
+        if category == "reactants" and not no_special_groups:
             groups = get_special_groups(mol)
         else:
             groups = []
@@ -947,7 +948,9 @@ def bond_to_label(bond: Chem.Bond) -> str:
     return "{}{}{}".format(atoms[0], Chem.Bond.GetSmarts(bond), atoms[1])
 
 
-def extract_from_reaction(reaction: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def extract_from_reaction(
+    reaction: Dict[str, Any], no_special_groups: bool = False, radius: int = 1
+) -> Optional[Dict[str, Any]]:
     reactants = mols_from_smiles_list(
         replace_deuterated(reaction["reactants"]).split(".")
     )
@@ -1047,7 +1050,12 @@ def extract_from_reaction(reaction: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     try:
         # Get fragments for reactants
         reactant_fragments, intra_only, dimer_only = get_fragments_for_changed_atoms(
-            reactants, changed_atom_tags, radius=1, expansion=[], category="reactants"
+            reactants,
+            changed_atom_tags,
+            radius=radius,
+            expansion=[],
+            category="reactants",
+            no_special_groups=no_special_groups,
         )
         # Get fragments for products
         # (WITHOUT matching groups but WITH the addition of reactant fragments)
