@@ -6,7 +6,12 @@ import rdkit.Chem as Chem
 from rdkit.Chem import rdmolops
 from rdkit.Chem.rdchem import BondDir, BondType, ChiralType
 
-from rdchiral.bonds import BondDirOpposite, restore_bond_stereo_to_sp2_atom
+from rdchiral.bonds import (
+    BondDirOpposite,
+    bond_dirs_by_mapnum,
+    correct_conjugated,
+    restore_bond_stereo_to_sp2_atom,
+)
 from rdchiral.chiral import (
     atom_chirality_matches,
     copy_chirality,
@@ -586,6 +591,7 @@ def rdchiralRun(
 
         ###############################################################################
         # Correct bond directionality in the outcome
+        initial_bond_dirs = bond_dirs_by_mapnum(outcome)
         for b in get_mol_bonds(outcome):
             if b.GetBondType() != BondType.DOUBLE:
                 continue
@@ -672,6 +678,12 @@ def rdchiralRun(
                     print(
                         "Uh oh, looks like bond direction is only specified for half of this bond?"
                     )
+
+        # Need to check whether a conjugated system was changed.
+        corrected = correct_conjugated(initial_bond_dirs, outcome)
+        if corrected:
+            if PLEVEL >= 5:
+                print("Found a corrupted conjugated system and corrected it")
 
         ###############################################################################
 

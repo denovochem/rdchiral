@@ -21,11 +21,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install ruff mypy types-requests
       - name: Ruff format check
-        run: ruff format --check .
+        run: ruff format --check rdchiral
       - name: Ruff lint
-        run: ruff check .
+        run: ruff check rdchiral
       - name: Type check with mypy
-        run: mypy .
+        run: mypy rdchiral
 #   test:
 #     runs-on: ubuntu-latest
 

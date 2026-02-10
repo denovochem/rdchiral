@@ -1089,7 +1089,9 @@ def extract_from_reaction(
     retro_canonical = products_string + ">>" + reactants_string
 
     # Load into RDKit
-    rxn = rdChemReactions.ReactionFromSmarts(retro_canonical)
+    rxn: rdChemReactions.ChemicalReaction = rdChemReactions.ReactionFromSmarts(
+        retro_canonical
+    )
     if rxn.Validate()[1] != 0:
         print("Could not validate reaction successfully")
         print("ID: {}".format(reaction["_id"]))
