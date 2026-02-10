@@ -950,7 +950,7 @@ def bond_to_label(bond: Chem.Bond) -> str:
 
 def extract_from_reaction(
     reaction: Dict[str, Any], no_special_groups: bool = False, radius: int = 1
-) -> Optional[Dict[str, Any]]:
+) -> Dict[str, Any]:
     reactants = mols_from_smiles_list(
         replace_deuterated(reaction["reactants"]).split(".")
     )
@@ -1001,7 +1001,7 @@ def extract_from_reaction(
             ]
             if len(unmapped_ids) > MAXIMUM_NUMBER_UNMAPPED_PRODUCT_ATOMS:
                 # Skip this example - too many unmapped product atoms!
-                return None
+                return {"reaction_id": reaction["_id"]}
             # Define new atom symbols for fragment with atom maps, generalizing fully
             atom_symbols = ["[{}]".format(a.GetSymbol()) for a in prod_atoms]
             # And bond symbols...
@@ -1039,7 +1039,7 @@ def extract_from_reaction(
         if VERBOSE:
             print("Could not get changed atoms")
             print("ID: {}".format(reaction["_id"]))
-        return None
+        return {"reaction_id": reaction["_id"]}
     if not changed_atom_tags:
         if VERBOSE:
             print("No atoms changed?")
