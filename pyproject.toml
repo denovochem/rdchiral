@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=45", "wheel", "mypy", "rdkit"]
+build-backend = "setuptools.build_meta"
+ 
+[project]
+name = "rdchiral"
+version = "1.1.0"
+description = "Wrapper for RDKit's RunReactants to improve stereochemistry handling"
+readme = "README.md"
+requires-python = ">=3.5"
+authors = [
+    {name = "Connor Coley", email = "ccoley@mit.edu"}
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+ 
+[project.urls]
+Homepage = "https://github.com/connorcoley/rdchiral/"
+ 
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["rdchiral*"]

@@ -1,28 +1,26 @@
 [![PyPI version](https://badge.fury.io/py/rdchiral.svg)](https://badge.fury.io/py/rdchiral)
+[![Maintenance](https://img.shields.io/badge/Maintained%3F-yes-green.svg)](https://github.com/denovochem/rdchiral/graphs/commit-activity)
+[![License](https://img.shields.io/pypi/l/rdchiral)](https://github.com/denovochem/rdchiral/blob/main/LICENSE)
+[![Run Tests](https://github.com/denovochem/rdchiral/actions/workflows/tests.yml/badge.svg)](https://github.com/denovochem/rdchiral/actions/workflows/tests.yml)
 
-# rdchiral
+# RDChiral
 Wrapper for RDKit's RunReactants to improve stereochemistry handling
+
+This repository is a fork of [rdchiral](https://github.com/connorcoley/rdchiral). It has been modified to be statically typed wherever possible so that it can be compiled with [mypyc](https://mypyc.readthedocs.io/en/latest/introduction.html) for faster execution. This modification provides comparable speed to the fast C++ version ([rdchiral_cpp](https://gitlab.com/ljn917/rdchiral_cpp)), which is itself 5-10x faster than the original, with all of the benefits of being written in Python, and being pip installable.
 
 ## Requirements
 
 * RDKit (version >= 2019)
 * Python (version >= 3.5)
+* mypyc (version >= 0.920)
 
 ## Installation
 
-To install RDChiral run
+Install RDChiral with pip directly from this repo:
 
-```pip install rdchiral```
-
-To get the most recent version reflected by this git repo, install with
-
-```pip install -e "git://github.com/connorcoley/rdchiral.git#egg=rdchiral"```
-
-## Fast C++ version (rdchiral_cpp)
-
-A fast C++ implementation ([rdchiral_cpp](https://gitlab.com/ljn917/rdchiral_cpp)) is available as a drop-in replacement. It provides ~10x speedup. To install from anaconda, run
-
-```conda install -c conda-forge -c ljn917 rdchiral_cpp```
+```shell
+pip install git+https://github.com/denovochem/rdchiral.git
+```
 
 ## Documentation
 

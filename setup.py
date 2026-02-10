@@ -1,38 +1,44 @@
-import setuptools
-from mypyc.build import mypycify
+import os
+import warnings
 
-with open("README.md", "r") as fh:
-    long_description = fh.read()
+from setuptools import setup
 
-mypyc_targets = [
-    "rdchiral/bonds.py",
-    "rdchiral/chiral.py",
-    "rdchiral/clean.py",
-    "rdchiral/initialization.py",
-    "rdchiral/template_extractor.py",
-    "rdchiral/utils.py",
-    "rdchiral/function_cache.py",
-    "rdchiral/main.py",
-    # optionally: "rdchiral/__init__.py"
-]
+# Try to use mypyc compilation
+ext_modules = []
+use_mypyc = os.getenv("RDCHIRAL_USE_MYPYC", "1") == "1"  # Default to trying mypyc
 
+if use_mypyc:
+    try:
+        from mypyc.build import mypycify
 
-setuptools.setup(
-    name="rdchiral",
-    version="1.1.0",
-    author="Connor Coley",
-    author_email="ccoley@mit.edu",
-    description="Wrapper for RDKit's RunReactants to improve stereochemistry handling",
-    long_description=long_description,
-    long_description_content_type="text/markdown",
-    url="https://github.com/connorcoley/rdchiral/",
-    packages=setuptools.find_packages(),
-    ext_modules=mypycify(mypyc_targets),
+        mypyc_targets = [
+            "rdchiral/bonds.py",
+            "rdchiral/chiral.py",
+            "rdchiral/clean.py",
+            "rdchiral/initialization.py",
+            "rdchiral/template_extractor.py",
+            "rdchiral/utils.py",
+            "rdchiral/function_cache.py",
+            "rdchiral/main.py",
+        ]
+
+        ext_modules = mypycify(mypyc_targets)
+        print("=" * 70)
+        print("Building rdchiral with mypyc compilation for better performance")
+        print("=" * 70)
+
+    except Exception as e:
+        warnings.warn(
+            f"\n{'=' * 70}\n"
+            f"WARNING: mypyc compilation failed: {e}\n"
+            f"Falling back to pure Python installation (slower but functional)\n"
+            f"To disable this warning, set: RDCHIRAL_USE_MYPYC=0\n"
+            f"{'=' * 70}",
+            UserWarning,
+        )
+        ext_modules = []
+
+setup(
+    ext_modules=ext_modules,
     zip_safe=False,
-    classifiers=[
-        "Programming Language :: Python :: 3",
-        "License :: OSI Approved :: MIT License",
-        "Operating System :: OS Independent",
-    ],
-    python_requires=">=3.5",
 )
