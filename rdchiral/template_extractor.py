@@ -16,6 +16,131 @@ MAXIMUM_NUMBER_UNMAPPED_PRODUCT_ATOMS = 5
 INCLUDE_ALL_UNMAPPED_REACTANT_ATOMS = True
 
 
+_SPECIAL_GROUP_TEMPLATES: List[Tuple[List[int], Chem.Mol]] = []
+
+
+def _initialize_special_group_templates() -> None:
+    """Initialize pre-compiled SMARTS patterns for special groups.
+    Called once at module import time."""
+    global _SPECIAL_GROUP_TEMPLATES
+
+    raw_templates: List[Tuple[List[int], str]] = [
+        (
+            list(range(3)),
+            "[OH0,SH0]=C[O,Cl,I,Br,F]",
+        ),  # carboxylic acid / halogen
+        (
+            list(range(3)),
+            "[OH0,SH0]=CN",
+        ),  # amide/sulfamide
+        (
+            list(range(4)),
+            "S(O)(O)[Cl]",
+        ),  # sulfonyl chloride
+        (
+            list(range(3)),
+            "B(O)O",
+        ),  # boronic acid/ester
+        ([0], "[Si](C)(C)C"),  # trialkyl silane
+        ([0], "[Si](OC)(OC)(OC)"),  # trialkoxy silane, default to methyl
+        (
+            list(range(3)),
+            "[N;H0;$(N-[#6]);D2]-,=[N;D2]-,=[N;D1]",
+        ),  # azide
+        (
+            list(range(8)),
+            "O=C1N([Br,I,F,Cl])C(=O)CC1",
+        ),  # NBS brominating agent
+        (
+            list(range(11)),
+            "Cc1ccc(S(=O)(=O)O)cc1",
+        ),  # Tosyl
+        ([7], "CC(C)(C)OC(=O)[N]"),  # N(boc)
+        ([4], "[CH3][CH0]([CH3])([CH3])O"),  #
+        (
+            list(range(2)),
+            "[C,N]=[C,N]",
+        ),  # alkene/imine
+        (
+            list(range(2)),
+            "[C,N]#[C,N]",
+        ),  # alkyne/nitrile
+        (
+            [2],
+            "C=C-[*]",
+        ),  # adj to alkene
+        (
+            [2],
+            "C#C-[*]",
+        ),  # adj to alkyne
+        (
+            [2],
+            "O=C-[*]",
+        ),  # adj to carbonyl
+        ([3], "O=C([CH3])-[*]"),  # adj to methyl ketone
+        (
+            [3],
+            "O=C([O,N])-[*]",
+        ),  # adj to carboxylic acid/amide/ester
+        (
+            list(range(4)),
+            "ClS(Cl)=O",
+        ),  # thionyl chloride
+        (
+            list(range(2)),
+            "[Mg,Li,Zn,Sn][Br,Cl,I,F]",
+        ),  # grinard/metal (non-disassociated)
+        (
+            list(range(3)),
+            "S(O)(O)",
+        ),  # SO2 group
+        (
+            list(range(2)),
+            "N~N",
+        ),  # diazo
+        (
+            [1],
+            "[!#6;R]@[#6;R]",
+        ),  # adjacency to heteroatom in ring
+        (
+            [2],
+            "[a!c]:a:a",
+        ),  # two-steps away from heteroatom in aromatic ring
+        # ((1,), 'c(-,=[*]):c([Cl,I,Br,F])',), # ortho to halogen on ring - too specific?
+        # ((1,), 'c(-,=[*]):c:c([Cl,I,Br,F])',), # meta to halogen on ring - too specific?
+        ([0], "[B,C](F)(F)F"),  # CF3, BF3 should have the F3 included
+    ]
+
+    # Stereo-specific ones (where we will need to include neighbors)
+    # Tetrahedral centers should already be okay...
+    raw_templates += [
+        (
+            [1, 2],
+            "[*]/[CH]=[CH]/[*]",
+        ),  # trans with two hydrogens
+        (
+            [1, 2],
+            "[*]/[CH]=[CH]\[*]",
+        ),  # cis with two hydrogens
+        (
+            [1, 2],
+            "[*]/[CH]=[CH0]([*])\[*]",
+        ),  # trans with one hydrogens
+        (
+            [1, 2],
+            "[*]/[D3;H1]=[!D1]",
+        ),  # specified on one end, can be N or C
+    ]
+
+    _SPECIAL_GROUP_TEMPLATES = [
+        (add_if_match, rdmolfiles.MolFromSmarts(template))
+        for add_if_match, template in raw_templates
+    ]
+
+
+_initialize_special_group_templates()
+
+
 def mols_from_smiles_list(all_smiles: List[str]) -> List[Chem.Mol]:
     """Given a list of smiles strings, this function creates rdkit
     molecules"""
@@ -275,121 +400,10 @@ def get_special_groups(mol: Chem.Mol) -> List[Tuple[List[int], List[int]]]:
     group to be included, and "unimportant" atoms in the groups that will not
     be included if another atom matches."""
 
-    # Define templates
-    group_templates: List[Tuple[List[int], str]] = [
-        (
-            list(range(3)),
-            "[OH0,SH0]=C[O,Cl,I,Br,F]",
-        ),  # carboxylic acid / halogen
-        (
-            list(range(3)),
-            "[OH0,SH0]=CN",
-        ),  # amide/sulfamide
-        (
-            list(range(4)),
-            "S(O)(O)[Cl]",
-        ),  # sulfonyl chloride
-        (
-            list(range(3)),
-            "B(O)O",
-        ),  # boronic acid/ester
-        ([0], "[Si](C)(C)C"),  # trialkyl silane
-        ([0], "[Si](OC)(OC)(OC)"),  # trialkoxy silane, default to methyl
-        (
-            list(range(3)),
-            "[N;H0;$(N-[#6]);D2]-,=[N;D2]-,=[N;D1]",
-        ),  # azide
-        (
-            list(range(8)),
-            "O=C1N([Br,I,F,Cl])C(=O)CC1",
-        ),  # NBS brominating agent
-        (
-            list(range(11)),
-            "Cc1ccc(S(=O)(=O)O)cc1",
-        ),  # Tosyl
-        ([7], "CC(C)(C)OC(=O)[N]"),  # N(boc)
-        ([4], "[CH3][CH0]([CH3])([CH3])O"),  #
-        (
-            list(range(2)),
-            "[C,N]=[C,N]",
-        ),  # alkene/imine
-        (
-            list(range(2)),
-            "[C,N]#[C,N]",
-        ),  # alkyne/nitrile
-        (
-            [2],
-            "C=C-[*]",
-        ),  # adj to alkene
-        (
-            [2],
-            "C#C-[*]",
-        ),  # adj to alkyne
-        (
-            [2],
-            "O=C-[*]",
-        ),  # adj to carbonyl
-        ([3], "O=C([CH3])-[*]"),  # adj to methyl ketone
-        (
-            [3],
-            "O=C([O,N])-[*]",
-        ),  # adj to carboxylic acid/amide/ester
-        (
-            list(range(4)),
-            "ClS(Cl)=O",
-        ),  # thionyl chloride
-        (
-            list(range(2)),
-            "[Mg,Li,Zn,Sn][Br,Cl,I,F]",
-        ),  # grinard/metal (non-disassociated)
-        (
-            list(range(3)),
-            "S(O)(O)",
-        ),  # SO2 group
-        (
-            list(range(2)),
-            "N~N",
-        ),  # diazo
-        (
-            [1],
-            "[!#6;R]@[#6;R]",
-        ),  # adjacency to heteroatom in ring
-        (
-            [2],
-            "[a!c]:a:a",
-        ),  # two-steps away from heteroatom in aromatic ring
-        # ((1,), 'c(-,=[*]):c([Cl,I,Br,F])',), # ortho to halogen on ring - too specific?
-        # ((1,), 'c(-,=[*]):c:c([Cl,I,Br,F])',), # meta to halogen on ring - too specific?
-        ([0], "[B,C](F)(F)F"),  # CF3, BF3 should have the F3 included
-    ]
-
-    # Stereo-specific ones (where we will need to include neighbors)
-    # Tetrahedral centers should already be okay...
-    group_templates += [
-        (
-            [1, 2],
-            "[*]/[CH]=[CH]/[*]",
-        ),  # trans with two hydrogens
-        (
-            [1, 2],
-            "[*]/[CH]=[CH]\[*]",
-        ),  # cis with two hydrogens
-        (
-            [1, 2],
-            "[*]/[CH]=[CH0]([*])\[*]",
-        ),  # trans with one hydrogens
-        (
-            [1, 2],
-            "[*]/[D3;H1]=[!D1]",
-        ),  # specified on one end, can be N or C
-    ]
-
     # Build list
     groups: List[Tuple[List[int], List[int]]] = []
-    for add_if_match, template in group_templates:
-        matches = mol.GetSubstructMatches(
-            rdmolfiles.MolFromSmarts(template), useChirality=True
-        )
+    for add_if_match, template_mol in _SPECIAL_GROUP_TEMPLATES:
+        matches = mol.GetSubstructMatches(template_mol, useChirality=True)
         for match in matches:
             add_if: List[int] = []
             for pattern_idx, atom_idx in enumerate(match):
