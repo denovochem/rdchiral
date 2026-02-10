@@ -13,6 +13,7 @@ from rdchiral.chiral import (
     template_atom_could_have_been_tetra,
 )
 from rdchiral.clean import canonicalize_outcome_smiles, combine_enantiomers_into_racemic
+from rdchiral.function_cache import get_mol_atoms, get_mol_bonds
 from rdchiral.initialization import rdchiralReactants, rdchiralReaction
 from rdchiral.utils import PLEVEL, atoms_are_different
 
@@ -125,14 +126,15 @@ def rdchiralRun(
         (list, str (optional)): Returns list of outcomes. If `return_mapped` is True,
             additionally return atom mapped SMILES strings
     """
-
     # New: reset atom map numbers for templates in case they have been overwritten
     # by previous uses of this template!
     rxn.reset()
 
     ###############################################################################
     # Run naive RDKit on ACHIRAL version of molecules
-    outcomes = rxn.rxn.RunReactants((reactants.reactants_achiral,))
+    outcomes: Tuple[Tuple[Chem.Mol, ...], ...] = rxn.rxn.RunReactants(
+        (reactants.reactants_achiral,)
+    )
     if PLEVEL >= (1):
         print("Using naive RunReactants, {} outcomes".format(len(outcomes)))
     if not outcomes:
@@ -156,7 +158,6 @@ def rdchiralRun(
     # TODO: cannot change atom map numbers in atoms_rt permanently?
     atoms_pt_map = rxn.atoms_pt_map
     ###############################################################################
-
     for outcome in outcomes:
         ###############################################################################
         # Look for new atoms in products that were not in
@@ -169,7 +170,7 @@ def rdchiralRun(
             )
         unmapped = 900
         for m in outcome:
-            for a in m.GetAtoms():
+            for a in get_mol_atoms(m):
                 # Assign map number to outcome based on react_atom_idx
                 if a.HasProp("react_atom_idx"):
                     a.SetAtomMapNum(
@@ -189,7 +190,7 @@ def rdchiralRun(
         atoms_rt = {
             a.GetAtomMapNum(): atoms_rt_map[a.GetIntProp("old_mapno")]
             for m in outcome
-            for a in m.GetAtoms()
+            for a in get_mol_atoms(m)
             if a.HasProp("old_mapno")
         }
 
@@ -286,7 +287,7 @@ def rdchiralRun(
         mapnums = [
             a.GetAtomMapNum()
             for m in outcome
-            for a in m.GetAtoms()
+            for a in get_mol_atoms(m)
             if a.GetAtomMapNum()
         ]
         if len(mapnums) != len(set(mapnums)):  # duplicate?
@@ -296,15 +297,15 @@ def rdchiralRun(
             merged_mol = Chem.RWMol(outcome[0])
             merged_map_to_id = {
                 a.GetAtomMapNum(): a.GetIdx()
-                for a in outcome[0].GetAtoms()
+                for a in get_mol_atoms(outcome[0])
                 if a.GetAtomMapNum()
             }
             for j in range(1, len(outcome)):
                 new_mol = outcome[j]
-                for a in new_mol.GetAtoms():
+                for a in get_mol_atoms(new_mol):
                     if a.GetAtomMapNum() not in merged_map_to_id:
                         merged_map_to_id[a.GetAtomMapNum()] = merged_mol.AddAtom(a)
-                for b in new_mol.GetBonds():
+                for b in get_mol_bonds(new_mol):
                     bi = b.GetBeginAtom().GetAtomMapNum()
                     bj = b.GetEndAtom().GetAtomMapNum()
                     if PLEVEL >= 10:
@@ -346,11 +347,11 @@ def rdchiralRun(
         # atoms_rt and atoms_p will be outcome-specific.
         atoms_pt = {
             a.GetAtomMapNum(): atoms_pt_map[a.GetIntProp("old_mapno")]
-            for a in outcome.GetAtoms()
+            for a in get_mol_atoms(outcome)
             if a.HasProp("old_mapno")
         }
         atoms_p = {
-            a.GetAtomMapNum(): a for a in outcome.GetAtoms() if a.GetAtomMapNum()
+            a.GetAtomMapNum(): a for a in get_mol_atoms(outcome) if a.GetAtomMapNum()
         }
 
         # Set map numbers of product template
@@ -390,7 +391,7 @@ def rdchiralRun(
             outcome = Chem.RWMol(outcome)
             rwmol_map_to_id = {
                 a.GetAtomMapNum(): a.GetIdx()
-                for a in outcome.GetAtoms()
+                for a in get_mol_atoms(outcome)
                 if a.GetAtomMapNum()
             }
             for i, j, b in missing_bonds:
@@ -403,7 +404,9 @@ def rdchiralRun(
                 new_b.SetIsAromatic(b.GetIsAromatic())
             outcome = outcome.GetMol()
             atoms_p = {
-                a.GetAtomMapNum(): a for a in outcome.GetAtoms() if a.GetAtomMapNum()
+                a.GetAtomMapNum(): a
+                for a in get_mol_atoms(outcome)
+                if a.GetAtomMapNum()
             }
         else:
             if PLEVEL >= 3:
@@ -424,7 +427,7 @@ def rdchiralRun(
         ###############################################################################
         # Correct tetra chirality in the outcome
         tetra_copied_from_reactants = []
-        for a in outcome.GetAtoms():
+        for a in get_mol_atoms(outcome):
             # Participants in reaction core (from reactants) will have old_mapno
             # Spectators present in reactants will have react_atom_idx
             # ...so new atoms will have neither!
@@ -578,11 +581,12 @@ def rdchiralRun(
                     Chem.MolToSmiles(outcome, True)
                 )
             )
+
         ###############################################################################
 
         ###############################################################################
         # Correct bond directionality in the outcome
-        for b in outcome.GetBonds():
+        for b in get_mol_bonds(outcome):
             if b.GetBondType() != BondType.DOUBLE:
                 continue
 
@@ -678,7 +682,7 @@ def rdchiralRun(
         mapped_outcome = Chem.MolToSmiles(outcome, True)
 
         if not keep_mapnums:
-            for a in outcome.GetAtoms():
+            for a in get_mol_atoms(outcome):
                 a.SetAtomMapNum(0)
 
         # Now, check to see if we have destroyed chirality
@@ -708,6 +712,7 @@ def rdchiralRun(
 
         final_outcomes.add(smiles_new)
         mapped_outcomes[smiles_new] = (mapped_outcome, atoms_changed)
+
     ###############################################################################
     # One last fix for consolidating multiple stereospecified products...
     if combine_enantiomers:
@@ -719,18 +724,14 @@ def rdchiralRun(
         return list(final_outcomes)
 
 
-# if __name__ == "__main__":
-#     start = time.time()
-#     reaction_smarts = "[C:1][OH:2]>>[C:1][O:2][C]"
-#     reactant_smiles = "OCC(=O)OCCCO"
+if __name__ == "__main__":
+    reaction_smarts = "[C:1][OH:2]>>[C:1][O:2][C]"
+    reactant_smiles = "OCC(=O)OCCCO"
 
-#     # Pre-initialize
-#     rxn = rdchiralReaction(reaction_smarts)
-#     reactants = rdchiralReactants(reactant_smiles)
-#     outcomes = rdchiralRun(rxn, reactants)
-#     print(outcomes)
+    # Pre-initialize
+    rxn = rdchiralReaction(reaction_smarts)
+    reactants = rdchiralReactants(reactant_smiles)
+    outcomes = rdchiralRun(rxn, reactants)
 
-#     # Get list of atoms that changed as well
-#     outcomes, mapped_outcomes = rdchiralRun(rxn, reactants, return_mapped=True)
-#     print(outcomes, mapped_outcomes)
-#     print(time.time() - start)
+    # Get list of atoms that changed as well
+    outcomes, mapped_outcomes = rdchiralRun(rxn, reactants, return_mapped=True)

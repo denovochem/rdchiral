@@ -11,6 +11,7 @@ from rdchiral.bonds import (
     get_atoms_across_double_bonds,
 )
 from rdchiral.chiral import template_atom_could_have_been_tetra
+from rdchiral.function_cache import get_mol_atoms, get_mol_bonds, mol_from_smiles
 from rdchiral.utils import PLEVEL
 
 BondDirOpposite = {
@@ -44,7 +45,9 @@ class rdchiralReaction(object):
         self.reaction_smarts = reaction_smarts
 
         # Initialize - assigns stereochemistry and fills in missing rct map numbers
-        self.rxn = initialize_rxn_from_smarts(reaction_smarts)
+        self.rxn: rdChemReactions.ChemicalReaction = initialize_rxn_from_smarts(
+            reaction_smarts
+        )
 
         # Combine template fragments so we can play around with mapnums
         self.template_r, self.template_p = get_template_frags_from_rxn(self.rxn)
@@ -52,21 +55,21 @@ class rdchiralReaction(object):
         # Define molAtomMapNumber->atom dictionary for template rct and prd
         self.atoms_rt_map: Dict[int, Chem.Atom] = {
             a.GetAtomMapNum(): a
-            for a in self.template_r.GetAtoms()
+            for a in get_mol_atoms(self.template_r)
             if a.GetAtomMapNum()
         }
         self.atoms_pt_map: Dict[int, Chem.Atom] = {
             a.GetAtomMapNum(): a
-            for a in self.template_p.GetAtoms()
+            for a in get_mol_atoms(self.template_p)
             if a.GetAtomMapNum()
         }
 
         # Back-up the mapping for the reaction
         self.atoms_rt_idx_to_map: Dict[int, int] = {
-            a.GetIdx(): a.GetAtomMapNum() for a in self.template_r.GetAtoms()
+            a.GetIdx(): a.GetAtomMapNum() for a in get_mol_atoms(self.template_r)
         }
         self.atoms_pt_idx_to_map: Dict[int, int] = {
-            a.GetIdx(): a.GetAtomMapNum() for a in self.template_p.GetAtoms()
+            a.GetIdx(): a.GetAtomMapNum() for a in get_mol_atoms(self.template_p)
         }
 
         # Check consistency (this should not be necessary...)
@@ -78,8 +81,10 @@ class rdchiralReaction(object):
             raise ValueError("Atomic identity should not change in a reaction!")
 
         # Call template_atom_could_have_been_tetra to pre-assign value to atom
-        [template_atom_could_have_been_tetra(a) for a in self.template_r.GetAtoms()]
-        [template_atom_could_have_been_tetra(a) for a in self.template_p.GetAtoms()]
+        for a in get_mol_atoms(self.template_r):
+            template_atom_could_have_been_tetra(a)
+        for a in get_mol_atoms(self.template_p):
+            template_atom_could_have_been_tetra(a)
 
         # Pre-list chiral double bonds (for copying back into outcomes/matching)
         self.rt_bond_dirs_by_mapnum = bond_dirs_by_mapnum(self.template_r)
@@ -130,31 +135,28 @@ class rdchiralReactants(object):
 
         # Set mapnum->atom dictionary
         # all reactant atoms must be mapped after initialization, so this is safe
-        self.atoms_r: Dict[int, Chem.Atom] = {
-            a.GetAtomMapNum(): a for a in self.reactants.GetAtoms()
-        }
+
+        self.atoms_r: Dict[int, Chem.Atom] = {}
+        for atom in get_mol_atoms(self.reactants):
+            self.atoms_r[atom.GetAtomMapNum()] = atom
+
         self.idx_to_mapnum = lambda idx: self.reactants.GetAtomWithIdx(
             idx
         ).GetAtomMapNum()
 
         # Create copy of molecule without chiral information, used with
         # RDKit's naive runReactants
-        self.reactants_achiral = initialize_reactants_from_smiles(
-            reactant_smiles, custom_reactant_mapping
-        )
-        [
+        self.reactants_achiral = Chem.Mol(self.reactants)
+        for a in get_mol_atoms(self.reactants_achiral):
             a.SetChiralTag(ChiralType.CHI_UNSPECIFIED)
-            for a in self.reactants_achiral.GetAtoms()
-        ]
-        [
-            (b.SetStereo(BondStereo.STEREONONE), b.SetBondDir(BondDir.NONE))
-            for b in self.reactants_achiral.GetBonds()
-        ]
+        for b in get_mol_bonds(self.reactants_achiral):
+            b.SetStereo(BondStereo.STEREONONE)
+            b.SetBondDir(BondDir.NONE)
 
         # Pre-list reactant bonds (for stitching broken products)
         self.bonds_by_mapnum: List[Tuple[int, int, Chem.Bond]] = [
             (b.GetBeginAtom().GetAtomMapNum(), b.GetEndAtom().GetAtomMapNum(), b)
-            for b in self.reactants.GetBonds()
+            for b in get_mol_bonds(self.reactants)
         ]
 
         # Pre-list chiral double bonds (for copying back into outcomes/matching)
@@ -194,7 +196,7 @@ def initialize_rxn_from_smarts(
     prd_maps: List[int] = [
         a.GetAtomMapNum()
         for prd in rxn.GetProducts()
-        for a in prd.GetAtoms()
+        for a in get_mol_atoms(prd)
         if a.GetAtomMapNum()
     ]
 
@@ -203,7 +205,7 @@ def initialize_rxn_from_smarts(
         rct.UpdatePropertyCache(strict=False)
         Chem.AssignStereochemistry(rct)
         # Fill in atom map numbers
-        for a in rct.GetAtoms():
+        for a in get_mol_atoms(rct):
             if not a.GetAtomMapNum() or a.GetAtomMapNum() not in prd_maps:
                 a.SetAtomMapNum(unmapped)
                 unmapped += 1
@@ -229,14 +231,15 @@ def initialize_reactants_from_smiles(
         rdkit.Chem.rdchem.Mol: RDKit molecule
     """
     # Initialize reactants
-    reactants = Chem.MolFromSmiles(reactant_smiles)
+    reactants = mol_from_smiles(reactant_smiles)
     Chem.AssignStereochemistry(reactants, flagPossibleStereoCenters=True)
     reactants.UpdatePropertyCache(strict=False)
     # To have the product atoms match reactant atoms, we
     # need to populate the map number field, since this field
     # gets copied over during the reaction via reactant_atom_idx.
     if not custom_reactant_mapping:
-        [a.SetAtomMapNum(i + 1) for (i, a) in enumerate(reactants.GetAtoms())]
+        for i, a in enumerate(get_mol_atoms(reactants)):
+            a.SetAtomMapNum(i + 1)
     if PLEVEL >= 2:
         print(
             "Initialized reactants, assigned map numbers, stereochem, flagpossiblestereocenters"

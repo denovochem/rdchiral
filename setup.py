@@ -11,6 +11,8 @@ mypyc_targets = [
     "rdchiral/initialization.py",
     "rdchiral/template_extractor.py",
     "rdchiral/utils.py",
+    "rdchiral/function_cache.py",
+    "rdchiral/main.py",
     # optionally: "rdchiral/__init__.py"
 ]
 

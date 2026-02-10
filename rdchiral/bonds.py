@@ -3,6 +3,7 @@ from typing import Callable, Dict, List, Optional, Set, Tuple
 import rdkit.Chem as Chem
 from rdkit.Chem.rdchem import BondDir, BondType
 
+from rdchiral.function_cache import get_mol_bonds
 from rdchiral.utils import PLEVEL
 
 BondDirOpposite = {
@@ -22,8 +23,8 @@ def bond_dirs_by_mapnum(mol: Chem.Mol) -> Dict[Tuple[int, int], BondDir]:
     Returns:
        dict: Mapping from (atom_map1, atom_map2) -> BondDir
     """
-    bond_dirs_by_mapnum = {}
-    for b in mol.GetBonds():
+    bond_dirs_by_mapnum: Dict[Tuple[int, int], BondDir] = {}
+    for b in get_mol_bonds(mol):
         i = None
         j = None
         if b.GetBeginAtom().GetAtomMapNum():
@@ -87,12 +88,12 @@ def enumerate_possible_cistrans_defs(
         (dict, set): Returns required_bond_defs and required_bond_defs_coreatoms
     """
 
-    required_bond_defs = {}
-    required_bond_defs_coreatoms = set()
+    required_bond_defs: Dict[Tuple[int, int, int, int], Tuple[BondDir, BondDir]] = {}
+    required_bond_defs_coreatoms: Set[Tuple[int, int]] = set()
 
     if PLEVEL >= 10:
         print("Looking at initializing template frag")
-    for b in template_r.GetBonds():
+    for b in get_mol_bonds(template_r):
         if b.GetBondType() != BondType.DOUBLE:
             continue
 
@@ -110,17 +111,17 @@ def enumerate_possible_cistrans_defs(
         if PLEVEL >= 10:
             print("Found a double bond with potential cis/trans (based on degree)")
         if PLEVEL >= 10:
-            print("{} {} {}".format(ba_label, b.GetSmarts(), bb_label))
+            print("{} {} {}".format(ba_label, Chem.Bond.GetSmarts(b), bb_label))
 
         # Save core atoms so we know that cis/trans was POSSIBLE to specify
         required_bond_defs_coreatoms.add((ba_label, bb_label))
         required_bond_defs_coreatoms.add((bb_label, ba_label))
 
         # Define heaviest mapnum neighbor for each atom, excluding the other side of the double bond
-        ba_neighbor_labels = [labeling_func(a) for a in ba.GetNeighbors()]
+        ba_neighbor_labels: List[int] = [labeling_func(a) for a in ba.GetNeighbors()]
         ba_neighbor_labels.remove(bb_label)  # remove other side of =
         ba_neighbor_labels_max = max(ba_neighbor_labels)
-        bb_neighbor_labels = [labeling_func(a) for a in bb.GetNeighbors()]
+        bb_neighbor_labels: List[int] = [labeling_func(a) for a in bb.GetNeighbors()]
         bb_neighbor_labels.remove(ba_label)  # remove other side of =
         bb_neighbor_labels_max = max(bb_neighbor_labels)
 
@@ -132,7 +133,7 @@ def enumerate_possible_cistrans_defs(
         #         is the begin atom)
         front_spec = None
         back_spec = None
-        for bab in ba.GetBonds():
+        for bab in get_mol_bonds(ba):
             if bab.GetBondDir() != BondDir.NONE:
                 if labeling_func(bab.GetBeginAtom()) == ba_label:
                     # Bond is in wrong order - flip
@@ -155,7 +156,7 @@ def enumerate_possible_cistrans_defs(
             if PLEVEL >= 10:
                 print("Front specification: {}".format(front_spec))
 
-            for bbb in bb.GetBonds():
+            for bbb in get_mol_bonds(bb):
                 if bbb.GetBondDir() != BondDir.NONE:
                     # For the "back" specification, the double-bonded atom *should* be the BeginAtom
                     if labeling_func(bbb.GetEndAtom()) == bb_label:
@@ -325,10 +326,14 @@ def get_atoms_across_double_bonds(
     Returns:
         list: atoms_across_double_bonds
     """
-    atoms_across_double_bonds = []
-    atomrings = None
+    atoms_across_double_bonds: List[
+        Tuple[Tuple[int, int, int, int], Tuple[BondDir, BondDir], bool]
+    ] = []
+    atomrings: List[Tuple[int]] = (
+        mol.GetRingInfo().AtomRings()
+    )  # tuple of tuples of atomIdx
 
-    for b in mol.GetBonds():
+    for b in get_mol_bonds(mol):
         if b.GetBondType() != BondType.DOUBLE:
             continue
 
@@ -346,7 +351,7 @@ def get_atoms_across_double_bonds(
         if PLEVEL >= 5:
             print("Found a double bond with potential cis/trans (based on degree)")
         if PLEVEL >= 5:
-            print("{} {} {}".format(ba_label, b.GetSmarts(), bb_label))
+            print("{} {} {}".format(ba_label, Chem.Bond.GetSmarts(b), bb_label))
 
         # Try to specify front and back direction separately
         front_mapnums: Optional[Tuple[int, int]] = None
@@ -356,7 +361,7 @@ def get_atoms_across_double_bonds(
         is_implicit = False
         bab = None
         bbb = None
-        for bab in (z for z in ba.GetBonds() if z.GetBondType() != BondType.DOUBLE):
+        for bab in (z for z in get_mol_bonds(ba) if z.GetBondType() != BondType.DOUBLE):
             if bab.GetBondDir() != BondDir.NONE:
                 front_mapnums = (
                     labeling_func(bab.GetBeginAtom()),
@@ -364,7 +369,7 @@ def get_atoms_across_double_bonds(
                 )
                 front_dir = bab.GetBondDir()
                 break
-        for bbb in (z for z in bb.GetBonds() if z.GetBondType() != BondType.DOUBLE):
+        for bbb in (z for z in get_mol_bonds(bb) if z.GetBondType() != BondType.DOUBLE):
             if bbb.GetBondDir() != BondDir.NONE:
                 back_mapnums = (
                     labeling_func(bbb.GetBeginAtom()),
@@ -381,10 +386,6 @@ def get_atoms_across_double_bonds(
         if front_dir is None or back_dir is None:
             if b.IsInRing():
                 # Implicit cis! Now to figure out right definitions...
-                if atomrings is None:
-                    atomrings = (
-                        mol.GetRingInfo().AtomRings()
-                    )  # tuple of tuples of atomIdx
                 for atomring in atomrings:
                     if ba.GetIdx() in atomring and bb.GetIdx() in atomring:
                         front_mapnums = (labeling_func(bab.GetOtherAtom(ba)), ba_label)
@@ -459,7 +460,7 @@ def restore_bond_stereo_to_sp2_atom(
         bool: Returns Trueif a bond direction was copied
     """
 
-    for bond_to_spec in a.GetBonds():
+    for bond_to_spec in get_mol_bonds(a):
         if (
             bond_to_spec.GetOtherAtom(a).GetAtomMapNum(),
             a.GetAtomMapNum(),
@@ -490,7 +491,7 @@ def restore_bond_stereo_to_sp2_atom(
     if a.GetDegree() == 2:
         # Either the branch used to define was replaced with H (deg 3 -> deg 2)
         # or the branch used to define was reacted (deg 2 -> deg 2)
-        for bond_to_spec in a.GetBonds():
+        for bond_to_spec in get_mol_bonds(a):
             if bond_to_spec.GetBondType() == BondType.DOUBLE:
                 continue
             if not bond_to_spec.GetOtherAtom(a).HasProp("old_mapno"):
@@ -523,7 +524,7 @@ def restore_bond_stereo_to_sp2_atom(
 
     if a.GetDegree() == 3:
         # If we lost the branch defining stereochem, it must have been replaced
-        for bond_to_spec in a.GetBonds():
+        for bond_to_spec in get_mol_bonds(a):
             if bond_to_spec.GetBondType() == BondType.DOUBLE:
                 continue
             oa = bond_to_spec.GetOtherAtom(a)

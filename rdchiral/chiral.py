@@ -1,8 +1,11 @@
 from __future__ import print_function
 
+from typing import List, Tuple
+
 from rdkit import Chem
 from rdkit.Chem.rdchem import BondType, ChiralType
 
+from rdchiral.function_cache import get_mol_bonds
 from rdchiral.utils import PLEVEL, parity4
 
 
@@ -51,7 +54,7 @@ def copy_chirality(a_src: Chem.Atom, a_new: Chem.Atom) -> None:
     if a_new.GetDegree() < 3:
         return
     if a_new.GetDegree() == 3 and any(
-        b.GetBondType() != BondType.SINGLE for b in a_new.GetBonds()
+        b.GetBondType() != BondType.SINGLE for b in get_mol_bonds(a_new)
     ):
         return
 
@@ -137,8 +140,15 @@ def atom_chirality_matches(a_tmp: Chem.Atom, a_mol: Chem.Atom) -> int:
             )
         return 2
 
-    mapnums_tmp = [a.GetAtomMapNum() for a in a_tmp.GetNeighbors()]
-    mapnums_mol = [a.GetAtomMapNum() for a in a_mol.GetNeighbors()]
+    mapnums_tmp: List[int] = []
+    a_tmp_neighbors: Tuple[Chem.Atom] = a_tmp.GetNeighbors()
+    for n in a_tmp_neighbors:
+        mapnums_tmp.append(n.GetAtomMapNum())
+
+    mapnums_mol: List[int] = []
+    a_mol_neighbors: Tuple[Chem.Atom] = a_mol.GetNeighbors()
+    for n in a_mol_neighbors:
+        mapnums_mol.append(n.GetAtomMapNum())
 
     # When there are fewer than 3 heavy neighbors, chirality is ambiguous...
     if len(mapnums_tmp) < 3 or len(mapnums_mol) < 3:
@@ -159,10 +169,10 @@ def atom_chirality_matches(a_tmp: Chem.Atom, a_mol: Chem.Atom) -> int:
             print(str(a_tmp.GetChiralTag()))
         if PLEVEL >= 10:
             print(str(a_mol.GetChiralTag()))
-        only_in_src = [i for i in mapnums_tmp if i not in mapnums_mol][
+        only_in_src: List[int] = [i for i in mapnums_tmp if i not in mapnums_mol][
             ::-1
         ]  # reverse for popping
-        only_in_mol = [i for i in mapnums_mol if i not in mapnums_tmp]
+        only_in_mol: List[int] = [i for i in mapnums_mol if i not in mapnums_tmp]
         if len(only_in_src) <= 1 and len(only_in_mol) <= 1:
             tmp_parity = parity4(mapnums_tmp)
             mol_parity = parity4(
