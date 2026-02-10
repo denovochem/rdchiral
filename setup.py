@@ -1,7 +1,19 @@
 import setuptools
+from mypyc.build import mypycify
 
 with open("README.md", "r") as fh:
     long_description = fh.read()
+
+mypyc_targets = [
+    "rdchiral/bonds.py",
+    "rdchiral/chiral.py",
+    "rdchiral/clean.py",
+    "rdchiral/initialization.py",
+    "rdchiral/template_extractor.py",
+    "rdchiral/utils.py",
+    # optionally: "rdchiral/__init__.py"
+]
+
 
 setuptools.setup(
     name="rdchiral",
@@ -13,10 +25,12 @@ setuptools.setup(
     long_description_content_type="text/markdown",
     url="https://github.com/connorcoley/rdchiral/",
     packages=setuptools.find_packages(),
+    ext_modules=mypycify(mypyc_targets),
+    zip_safe=False,
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
     ],
-    python_requires='>=3.5',
+    python_requires=">=3.5",
 )
