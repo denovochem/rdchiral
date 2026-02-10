@@ -111,12 +111,14 @@ class rdchiralReactants(object):
         reactant_smiles (str): Reactant SMILES string
         reactants (rdkit.Chem.rdchem.Mol): RDKit Molecule create from `initialize_reactants_from_smiles`
         atoms_r (dict): Dictionary mapping from atom map number to atom in `reactants` Molecule
-        idx_to_mapnum (callable): callable function that takes idx and returns atom map number
         reactants_achiral (rdkit.Chem.rdchem.Mol): achiral version of `reactants`
         bonds_by_mapnum (list): List of reactant bonds
             (int, int, rdkit.Chem.rdchem.Bond)
         bond_dirs_by_mapnum (dict): Dictionary mapping from atom map number tuples to BondDir
         atoms_across_double_bonds (list): List of cis/trans specifications from `get_atoms_across_double_bonds`
+
+    Methods:
+        idx_to_mapnum (int): Returns atom map number for given atom idx
 
     Args:
         reactant_smiles (str): Reactant SMILES string
@@ -139,10 +141,6 @@ class rdchiralReactants(object):
         self.atoms_r: Dict[int, Chem.Atom] = {}
         for atom in get_mol_atoms(self.reactants):
             self.atoms_r[atom.GetAtomMapNum()] = atom
-
-        self.idx_to_mapnum = lambda idx: self.reactants.GetAtomWithIdx(
-            idx
-        ).GetAtomMapNum()
 
         # Create copy of molecule without chiral information, used with
         # RDKit's naive runReactants
@@ -169,6 +167,9 @@ class rdchiralReactants(object):
         # Get atoms across double bonds defined by mapnum
         self.atoms_across_double_bonds = get_atoms_across_double_bonds(self.reactants)
 
+    def idx_to_mapnum(self, idx: int) -> int:
+        return self.reactants.GetAtomWithIdx(idx).GetAtomMapNum()
+
 
 def initialize_rxn_from_smarts(
     reaction_smarts: str,
@@ -193,15 +194,16 @@ def initialize_rxn_from_smarts(
     # e.g., leaving groups for retrosynthetic templates. This is because additional
     # atom map numbers in the input SMARTS template may conflict with the atom map
     # numbers of the molecules themselves
-    prd_maps: List[int] = [
-        a.GetAtomMapNum()
-        for prd in rxn.GetProducts()
-        for a in get_mol_atoms(prd)
-        if a.GetAtomMapNum()
-    ]
+    products: List[Chem.Mol] = rxn.GetProducts()
+    prd_maps: List[int] = []
+    for prd in products:
+        for a in get_mol_atoms(prd):
+            if a.GetAtomMapNum():
+                prd_maps.append(a.GetAtomMapNum())
 
     unmapped = 700
-    for rct in rxn.GetReactants():
+    reactants: List[Chem.Mol] = rxn.GetReactants()
+    for rct in reactants:
         rct.UpdatePropertyCache(strict=False)
         Chem.AssignStereochemistry(rct)
         # Fill in atom map numbers
@@ -259,12 +261,14 @@ def get_template_frags_from_rxn(
         (rdkit.Chem.rdchem.Mol, rdkit.Chem.rdchem.Mol): tuple of fragment molecules
     """
     # Copy reaction template so we can play around with map numbers
-    for i, rct in enumerate(rxn.GetReactants()):
+    reactants: List[Chem.Mol] = rxn.GetReactants()
+    for i, rct in enumerate(reactants):
         if i == 0:
             template_r = rct
         else:
             template_r = rdmolops.CombineMols(template_r, rct)
-    for i, prd in enumerate(rxn.GetProducts()):
+    products: List[Chem.Mol] = rxn.GetProducts()
+    for i, prd in enumerate(products):
         if i == 0:
             template_p = prd
         else:

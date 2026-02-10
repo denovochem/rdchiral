@@ -1,6 +1,6 @@
 from __future__ import print_function
 
-from typing import List
+from typing import List, Tuple
 
 from rdkit import Chem
 
@@ -137,8 +137,18 @@ def atoms_are_different(atom1: Chem.Atom, atom2: Chem.Atom) -> bool:
         return True
 
     # Check bonds and nearest neighbor identity
-    bonds1 = sorted([bond_to_label(bond) for bond in atom1.GetBonds()])
-    bonds2 = sorted([bond_to_label(bond) for bond in atom2.GetBonds()])
+    atom_1_bonds: Tuple[Chem.Bond, ...] = tuple(atom1.GetBonds())
+    bonds1: List[str] = []
+    for bond in atom_1_bonds:
+        bonds1.append(bond_to_label(bond))
+    bonds1 = sorted(bonds1)
+
+    atom_2_bonds: Tuple[Chem.Bond, ...] = tuple(atom2.GetBonds())
+    bonds2: List[str] = []
+    for bond in atom_2_bonds:
+        bonds2.append(bond_to_label(bond))
+    bonds2 = sorted(bonds2)
+
     if bonds1 != bonds2:
         return True
 

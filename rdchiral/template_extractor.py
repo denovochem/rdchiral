@@ -578,7 +578,7 @@ def reassign_atom_mapping(transform: str) -> str:
     the atom-mapping labels (numbers) from left to right, once
     that transform has been canonicalized."""
 
-    all_labels = re.findall("\:([0-9]+)\]", transform)
+    all_labels: List[str] = re.findall("\:([0-9]+)\]", transform)
 
     # Define list of replacements which matches all_labels *IN ORDER*
     replacements: List[str] = []
@@ -661,7 +661,9 @@ def expand_changed_atom_tags(
     changed_atom_tags list so that those tagged atoms are included in the products"""
 
     expansion = []
-    atom_tags_in_reactant_fragments = re.findall("\:([0-9]+)\]", reactant_fragments)
+    atom_tags_in_reactant_fragments: List[str] = re.findall(
+        "\:([0-9]+)\]", reactant_fragments
+    )
     for atom_tag in atom_tags_in_reactant_fragments:
         if atom_tag not in changed_atom_tags:
             expansion.append(atom_tag)

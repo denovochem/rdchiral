@@ -1,4 +1,4 @@
-from typing import Callable, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import rdkit.Chem as Chem
 from rdkit.Chem.rdchem import BondDir, BondType
@@ -40,18 +40,17 @@ def bond_dirs_by_mapnum(mol: Chem.Mol) -> Dict[Tuple[int, int], BondDir]:
 
 def enumerate_possible_cistrans_defs(
     template_r: Chem.Mol,
-    labeling_func: Callable[[Chem.Atom], int] = lambda a: a.GetAtomMapNum(),
 ) -> Tuple[
     Dict[Tuple[int, int, int, int], Tuple[BondDir, BondDir]], Set[Tuple[int, int]]
 ]:
     """This function is meant to take a reactant template and fully enumerate
     all the ways in which different double-bonds can have their cis/trans
-    chirality specified (based on labeling_func). This is necessary because
-    double-bond chirality cannot be specified using cis/trans (global properties)
-    but must be done using ENDUPRIGHT and ENDDOWNRIGHT for the attached single
-    bonds (local properties). Now, the next issue is that on each side of the
-    double bond, only one of the single bond directions must be specified, and
-    that direction can be using either atom order. e.g.,
+    chirality specified. This is necessary because double-bond chirality cannot
+    be specified using cis/trans (global properties), but must be done using
+    ENDUPRIGHT and ENDDOWNRIGHT for the attached single bonds (local properties).
+    Now, the next issue is that on each side of the double bond, only one of
+    the single bond directions must be specified, and that direction can be
+    using either atom order. e.g.,
 
     A1         B1
        \      /
@@ -81,8 +80,6 @@ def enumerate_possible_cistrans_defs(
 
     Args:
         template_r: reactant template
-        labeling_func (callable): Callable function to label an atom. 
-            Function should take an atom and return an int.
     
     Returns:
         (dict, set): Returns required_bond_defs and required_bond_defs_coreatoms
@@ -105,8 +102,8 @@ def enumerate_possible_cistrans_defs(
         if ba.GetDegree() == 1 or bb.GetDegree() == 1:
             continue
 
-        ba_label = labeling_func(ba)
-        bb_label = labeling_func(bb)
+        ba_label = ba.GetAtomMapNum()
+        bb_label = bb.GetAtomMapNum()
 
         if PLEVEL >= 10:
             print("Found a double bond with potential cis/trans (based on degree)")
@@ -118,10 +115,10 @@ def enumerate_possible_cistrans_defs(
         required_bond_defs_coreatoms.add((bb_label, ba_label))
 
         # Define heaviest mapnum neighbor for each atom, excluding the other side of the double bond
-        ba_neighbor_labels: List[int] = [labeling_func(a) for a in ba.GetNeighbors()]
+        ba_neighbor_labels: List[int] = [a.GetAtomMapNum() for a in ba.GetNeighbors()]
         ba_neighbor_labels.remove(bb_label)  # remove other side of =
         ba_neighbor_labels_max = max(ba_neighbor_labels)
-        bb_neighbor_labels: List[int] = [labeling_func(a) for a in bb.GetNeighbors()]
+        bb_neighbor_labels: List[int] = [a.GetAtomMapNum() for a in bb.GetNeighbors()]
         bb_neighbor_labels.remove(ba_label)  # remove other side of =
         bb_neighbor_labels_max = max(bb_neighbor_labels)
 
@@ -135,15 +132,15 @@ def enumerate_possible_cistrans_defs(
         back_spec = None
         for bab in get_mol_bonds(ba):
             if bab.GetBondDir() != BondDir.NONE:
-                if labeling_func(bab.GetBeginAtom()) == ba_label:
+                if bab.GetBeginAtom().GetAtomMapNum() == ba_label:
                     # Bond is in wrong order - flip
-                    if labeling_func(bab.GetEndAtom()) != ba_neighbor_labels_max:
+                    if bab.GetEndAtom().GetAtomMapNum() != ba_neighbor_labels_max:
                         # Defined atom is not the heaviest - flip
                         front_spec = bab.GetBondDir()
                         break
                     front_spec = BondDirOpposite[bab.GetBondDir()]
                     break
-                if labeling_func(bab.GetBeginAtom()) != ba_neighbor_labels_max:
+                if bab.GetBeginAtom().GetAtomMapNum() != ba_neighbor_labels_max:
                     # Defined atom is not heaviest
                     front_spec = BondDirOpposite[bab.GetBondDir()]
                     break
@@ -159,15 +156,15 @@ def enumerate_possible_cistrans_defs(
             for bbb in get_mol_bonds(bb):
                 if bbb.GetBondDir() != BondDir.NONE:
                     # For the "back" specification, the double-bonded atom *should* be the BeginAtom
-                    if labeling_func(bbb.GetEndAtom()) == bb_label:
+                    if bbb.GetEndAtom().GetAtomMapNum() == bb_label:
                         # Bond is in wrong order - flip
-                        if labeling_func(bbb.GetBeginAtom()) != bb_neighbor_labels_max:
+                        if bbb.GetBeginAtom().GetAtomMapNum() != bb_neighbor_labels_max:
                             # Defined atom is not the heaviest - flip
                             back_spec = bbb.GetBondDir()
                             break
                         back_spec = BondDirOpposite[bbb.GetBondDir()]
                         break
-                    if labeling_func(bbb.GetEndAtom()) != bb_neighbor_labels_max:
+                    if bbb.GetEndAtom().GetAtomMapNum() != bb_neighbor_labels_max:
                         # Defined atom is not heaviest - flip
                         back_spec = BondDirOpposite[bbb.GetBondDir()]
                         break
@@ -294,7 +291,6 @@ def enumerate_possible_cistrans_defs(
 
 def get_atoms_across_double_bonds(
     mol: Chem.Mol,
-    labeling_func: Callable[[Chem.Atom], int] = lambda a: a.GetAtomMapNum(),
 ) -> List[Tuple[Tuple[int, int, int, int], Tuple[BondDir, BondDir], bool]]:
     """This function takes a molecule and returns a list of cis/trans specifications
     according to the following:
@@ -320,8 +316,6 @@ def get_atoms_across_double_bonds(
 
     Args:
         mol (rdkit.Chem.rdchem.Mol): RDKit molecule
-        labeling_func (callable): Callable function to label an atom.
-            Function should take an atom and return an int.
 
     Returns:
         list: atoms_across_double_bonds
@@ -329,9 +323,9 @@ def get_atoms_across_double_bonds(
     atoms_across_double_bonds: List[
         Tuple[Tuple[int, int, int, int], Tuple[BondDir, BondDir], bool]
     ] = []
-    atomrings: List[Tuple[int]] = (
-        mol.GetRingInfo().AtomRings()
-    )  # tuple of tuples of atomIdx
+    ring_info: Chem.RingInfo = mol.GetRingInfo()
+    atomrings: Tuple[Any] = ring_info.AtomRings()
+    print(atomrings)
 
     for b in get_mol_bonds(mol):
         if b.GetBondType() != BondType.DOUBLE:
@@ -345,8 +339,8 @@ def get_atoms_across_double_bonds(
         if ba.GetDegree() == 1 or bb.GetDegree() == 1:
             continue
 
-        ba_label = labeling_func(ba)
-        bb_label = labeling_func(bb)
+        ba_label = ba.GetAtomMapNum()
+        bb_label = bb.GetAtomMapNum()
 
         if PLEVEL >= 5:
             print("Found a double bond with potential cis/trans (based on degree)")
@@ -364,16 +358,16 @@ def get_atoms_across_double_bonds(
         for bab in (z for z in get_mol_bonds(ba) if z.GetBondType() != BondType.DOUBLE):
             if bab.GetBondDir() != BondDir.NONE:
                 front_mapnums = (
-                    labeling_func(bab.GetBeginAtom()),
-                    labeling_func(bab.GetEndAtom()),
+                    bab.GetBeginAtom().GetAtomMapNum(),
+                    bab.GetEndAtom().GetAtomMapNum(),
                 )
                 front_dir = bab.GetBondDir()
                 break
         for bbb in (z for z in get_mol_bonds(bb) if z.GetBondType() != BondType.DOUBLE):
             if bbb.GetBondDir() != BondDir.NONE:
                 back_mapnums = (
-                    labeling_func(bbb.GetBeginAtom()),
-                    labeling_func(bbb.GetEndAtom()),
+                    bbb.GetBeginAtom().GetAtomMapNum(),
+                    bbb.GetEndAtom().GetAtomMapNum(),
                 )
                 back_dir = bbb.GetBondDir()
                 break
@@ -388,8 +382,8 @@ def get_atoms_across_double_bonds(
                 # Implicit cis! Now to figure out right definitions...
                 for atomring in atomrings:
                     if ba.GetIdx() in atomring and bb.GetIdx() in atomring:
-                        front_mapnums = (labeling_func(bab.GetOtherAtom(ba)), ba_label)
-                        back_mapnums = (bb_label, labeling_func(bbb.GetOtherAtom(bb)))
+                        front_mapnums = (bab.GetOtherAtom(ba).GetAtomMapNum(), ba_label)
+                        back_mapnums = (bb_label, bbb.GetOtherAtom(bb).GetAtomMapNum())
                         if (bab.GetOtherAtomIdx(ba.GetIdx()) in atomring) != (
                             bbb.GetOtherAtomIdx(bb.GetIdx()) in atomring
                         ):
@@ -412,13 +406,13 @@ def get_atoms_across_double_bonds(
                 # note: this is why we use "for bab in ___generator___", so that we know the current
                 #       value of bab and bbb correspond to a single bond we can def. by
                 front_mapnums = (
-                    labeling_func(bab.GetBeginAtom()),
-                    labeling_func(bab.GetEndAtom()),
+                    bab.GetBeginAtom().GetAtomMapNum(),
+                    bab.GetEndAtom().GetAtomMapNum(),
                 )
                 front_dir = BondDir.NONE
                 back_mapnums = (
-                    labeling_func(bbb.GetBeginAtom()),
-                    labeling_func(bbb.GetEndAtom()),
+                    bbb.GetBeginAtom().GetAtomMapNum(),
+                    bbb.GetEndAtom().GetAtomMapNum(),
                 )
                 back_dir = BondDir.NONE
 

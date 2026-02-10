@@ -1,8 +1,9 @@
 from __future__ import print_function
 
-from typing import List, Tuple
+from typing import List, Tuple, cast
 
 from rdkit import Chem
+from rdkit.Chem import rdchem
 from rdkit.Chem.rdchem import BondType, ChiralType
 
 from rdchiral.function_cache import get_mol_bonds
@@ -141,12 +142,13 @@ def atom_chirality_matches(a_tmp: Chem.Atom, a_mol: Chem.Atom) -> int:
         return 2
 
     mapnums_tmp: List[int] = []
-    a_tmp_neighbors: Tuple[Chem.Atom] = a_tmp.GetNeighbors()
+
+    a_tmp_neighbors = cast(Tuple[rdchem.QueryAtom, ...], a_tmp.GetNeighbors())
     for n in a_tmp_neighbors:
         mapnums_tmp.append(n.GetAtomMapNum())
 
     mapnums_mol: List[int] = []
-    a_mol_neighbors: Tuple[Chem.Atom] = a_mol.GetNeighbors()
+    a_mol_neighbors = cast(Tuple[rdchem.QueryAtom, ...], a_mol.GetNeighbors())
     for n in a_mol_neighbors:
         mapnums_mol.append(n.GetAtomMapNum())
 
