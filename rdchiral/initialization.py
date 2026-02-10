@@ -194,7 +194,7 @@ def initialize_rxn_from_smarts(
     # e.g., leaving groups for retrosynthetic templates. This is because additional
     # atom map numbers in the input SMARTS template may conflict with the atom map
     # numbers of the molecules themselves
-    products: List[Chem.Mol] = rxn.GetProducts()
+    products: List[Chem.Mol] = list(rxn.GetProducts())
     prd_maps: List[int] = []
     for prd in products:
         for a in get_mol_atoms(prd):
@@ -202,7 +202,7 @@ def initialize_rxn_from_smarts(
                 prd_maps.append(a.GetAtomMapNum())
 
     unmapped = 700
-    reactants: List[Chem.Mol] = rxn.GetReactants()
+    reactants: List[Chem.Mol] = list(rxn.GetReactants())
     for rct in reactants:
         rct.UpdatePropertyCache(strict=False)
         Chem.AssignStereochemistry(rct)
@@ -261,13 +261,13 @@ def get_template_frags_from_rxn(
         (rdkit.Chem.rdchem.Mol, rdkit.Chem.rdchem.Mol): tuple of fragment molecules
     """
     # Copy reaction template so we can play around with map numbers
-    reactants: List[Chem.Mol] = rxn.GetReactants()
+    reactants: List[Chem.Mol] = list(rxn.GetReactants())
     for i, rct in enumerate(reactants):
         if i == 0:
             template_r = rct
         else:
             template_r = rdmolops.CombineMols(template_r, rct)
-    products: List[Chem.Mol] = rxn.GetProducts()
+    products: List[Chem.Mol] = list(rxn.GetProducts())
     for i, prd in enumerate(products):
         if i == 0:
             template_p = prd
