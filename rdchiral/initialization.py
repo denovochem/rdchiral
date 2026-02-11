@@ -42,7 +42,7 @@ class rdchiralReaction(object):
 
     def __init__(self, reaction_smarts: str):
         # Keep smarts, useful for reporting
-        self.reaction_smarts = reaction_smarts
+        self.reaction_smarts: str = reaction_smarts
 
         # Initialize - assigns stereochemistry and fills in missing rct map numbers
         self.rxn: rdChemReactions.ChemicalReaction = initialize_rxn_from_smarts(
@@ -87,15 +87,19 @@ class rdchiralReaction(object):
             template_atom_could_have_been_tetra(a)
 
         # Pre-list chiral double bonds (for copying back into outcomes/matching)
-        self.rt_bond_dirs_by_mapnum = bond_dirs_by_mapnum(self.template_r)
-        self.pt_bond_dirs_by_mapnum = bond_dirs_by_mapnum(self.template_p)
+        self.rt_bond_dirs_by_mapnum: Dict[Tuple[int, int], BondDir] = (
+            bond_dirs_by_mapnum(self.template_r)
+        )
+        self.pt_bond_dirs_by_mapnum: Dict[Tuple[int, int], BondDir] = (
+            bond_dirs_by_mapnum(self.template_p)
+        )
 
         # Enumerate possible cis/trans...
         self.required_rt_bond_defs, self.required_bond_defs_coreatoms = (
             enumerate_possible_cistrans_defs(self.template_r)
         )
 
-    def reset(self):
+    def reset(self) -> None:
         """Reset atom map numbers for template fragment atoms"""
         for idx, mapnum in self.atoms_rt_idx_to_map.items():
             self.template_r.GetAtomWithIdx(idx).SetAtomMapNum(mapnum)
@@ -127,11 +131,11 @@ class rdchiralReactants(object):
 
     def __init__(self, reactant_smiles: str, custom_reactant_mapping: bool = False):
         # Keep original smiles, useful for reporting
-        self.reactant_smiles = reactant_smiles
-        self.custom_mapping = custom_reactant_mapping
+        self.reactant_smiles: str = reactant_smiles
+        self.custom_mapping: bool = custom_reactant_mapping
 
         # Initialize into RDKit mol
-        self.reactants = initialize_reactants_from_smiles(
+        self.reactants: Chem.Mol = initialize_reactants_from_smiles(
             reactant_smiles, custom_reactant_mapping
         )
 
@@ -165,7 +169,9 @@ class rdchiralReactants(object):
                 self.bond_dirs_by_mapnum[(j, i)] = BondDirOpposite[b.GetBondDir()]
 
         # Get atoms across double bonds defined by mapnum
-        self.atoms_across_double_bonds = get_atoms_across_double_bonds(self.reactants)
+        self.atoms_across_double_bonds: List[
+            Tuple[Tuple[int, int, int, int], Tuple[BondDir, BondDir], bool]
+        ] = get_atoms_across_double_bonds(self.reactants)
 
     def idx_to_mapnum(self, idx: int) -> int:
         return self.reactants.GetAtomWithIdx(idx).GetAtomMapNum()
@@ -183,7 +189,9 @@ def initialize_rxn_from_smarts(
         rdkit.Chem.rdChemReactions.ChemicalReaction: RDKit reaction object
     """
     # Initialize reaction
-    rxn = rdChemReactions.ReactionFromSmarts(reaction_smarts)
+    rxn: rdChemReactions.ChemicalReaction = rdChemReactions.ReactionFromSmarts(
+        reaction_smarts
+    )
     rxn.Initialize()
     if rxn.Validate()[1] != 0:
         raise ValueError("validation failed")
@@ -194,7 +202,8 @@ def initialize_rxn_from_smarts(
     # e.g., leaving groups for retrosynthetic templates. This is because additional
     # atom map numbers in the input SMARTS template may conflict with the atom map
     # numbers of the molecules themselves
-    products: List[Chem.Mol] = list(rxn.GetProducts())
+    products_vec: rdChemReactions.MOL_SPTR_VECT = rxn.GetProducts()
+    products: List[Chem.Mol] = [mol for mol in products_vec]
     prd_maps: List[int] = []
     for prd in products:
         for a in get_mol_atoms(prd):
@@ -202,7 +211,8 @@ def initialize_rxn_from_smarts(
                 prd_maps.append(a.GetAtomMapNum())
 
     unmapped = 700
-    reactants: List[Chem.Mol] = list(rxn.GetReactants())
+    reactants_vec: rdChemReactions.MOL_SPTR_VECT = rxn.GetReactants()
+    reactants: List[Chem.Mol] = [mol for mol in reactants_vec]
     for rct in reactants:
         rct.UpdatePropertyCache(strict=False)
         Chem.AssignStereochemistry(rct)
@@ -233,7 +243,7 @@ def initialize_reactants_from_smiles(
         rdkit.Chem.rdchem.Mol: RDKit molecule
     """
     # Initialize reactants
-    reactants = mol_from_smiles(reactant_smiles)
+    reactants: Chem.Mol = mol_from_smiles(reactant_smiles)
     Chem.AssignStereochemistry(reactants, flagPossibleStereoCenters=True)
     reactants.UpdatePropertyCache(strict=False)
     # To have the product atoms match reactant atoms, we
@@ -261,13 +271,15 @@ def get_template_frags_from_rxn(
         (rdkit.Chem.rdchem.Mol, rdkit.Chem.rdchem.Mol): tuple of fragment molecules
     """
     # Copy reaction template so we can play around with map numbers
-    reactants: List[Chem.Mol] = list(rxn.GetReactants())
+    reactants_vec: rdChemReactions.MOL_SPTR_VECT = rxn.GetReactants()
+    reactants: List[Chem.Mol] = [mol for mol in reactants_vec]
     for i, rct in enumerate(reactants):
         if i == 0:
             template_r = rct
         else:
             template_r = rdmolops.CombineMols(template_r, rct)
-    products: List[Chem.Mol] = list(rxn.GetProducts())
+    products_vec: rdChemReactions.MOL_SPTR_VECT = rxn.GetProducts()
+    products: List[Chem.Mol] = [mol for mol in products_vec]
     for i, prd in enumerate(products):
         if i == 0:
             template_p = prd

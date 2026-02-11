@@ -7,7 +7,7 @@ from rdkit import Chem
 PLEVEL = 0
 
 
-def vprint(level, txt, *args):
+def vprint(level: int, txt: str, *args) -> None:
     if PLEVEL >= level:
         print(txt.format(*args))
 

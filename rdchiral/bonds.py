@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 import rdkit.Chem as Chem
 from rdkit.Chem.rdchem import BondDir, BondType
@@ -324,7 +324,7 @@ def get_atoms_across_double_bonds(
         Tuple[Tuple[int, int, int, int], Tuple[BondDir, BondDir], bool]
     ] = []
     ring_info: Chem.RingInfo = mol.GetRingInfo()
-    atomrings: Tuple[Any] = ring_info.AtomRings()
+    atomrings = ring_info.AtomRings()
 
     for b in get_mol_bonds(mol):
         if b.GetBondType() != BondType.DOUBLE:

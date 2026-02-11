@@ -1,6 +1,6 @@
 from __future__ import print_function
 
-from typing import List, Tuple
+from typing import Any, Dict, List, Tuple
 
 import rdkit.Chem as Chem
 from rdkit.Chem import rdmolops
@@ -88,8 +88,10 @@ def rdchiralRunText(
     reaction_smarts: str,
     reactant_smiles: str,
     custom_reactant_mapping: bool = False,
-    **kwargs,
-) -> List[str] | Tuple[List[str], List[str]]:
+    keep_mapnums: bool = False,
+    combine_enantiomers: bool = True,
+    return_mapped: bool = False,
+) -> List[str] | Tuple[List[str], Dict[str, Tuple[str, Tuple[int, ...]]]]:
     """Run from SMARTS string and SMILES string. This is NOT recommended
     for library application, since initialization is pretty slow. You should
     separately initialize the template and molecules and call run()
@@ -104,7 +106,7 @@ def rdchiralRunText(
     """
     rxn = rdchiralReaction(reaction_smarts)
     reactants = rdchiralReactants(reactant_smiles, custom_reactant_mapping)
-    return rdchiralRun(rxn, reactants, **kwargs)
+    return rdchiralRun(rxn, reactants, keep_mapnums, combine_enantiomers, return_mapped)
 
 
 def rdchiralRun(
@@ -113,7 +115,7 @@ def rdchiralRun(
     keep_mapnums: bool = False,
     combine_enantiomers: bool = True,
     return_mapped: bool = False,
-):
+) -> List[str] | Tuple[List[str], Dict[str, Tuple[str, Tuple[int, ...]]]]:
     """Run rdchiral reaction
 
     NOTE: there is a fair amount of initialization (assigning stereochem), most
@@ -137,13 +139,14 @@ def rdchiralRun(
 
     ###############################################################################
     # Run naive RDKit on ACHIRAL version of molecules
-    outcomes: Tuple[Tuple[Chem.Mol, ...], ...] = rxn.rxn.RunReactants(
-        (reactants.reactants_achiral,)
-    )
+    outcomes: Tuple[Any, ...] = rxn.rxn.RunReactants((reactants.reactants_achiral,))
     if PLEVEL >= (1):
         print("Using naive RunReactants, {} outcomes".format(len(outcomes)))
     if not outcomes:
-        return []
+        if return_mapped:
+            return [], {}
+        else:
+            return []
     ###############################################################################
 
     ###############################################################################
@@ -158,7 +161,7 @@ def rdchiralRun(
     # Copy reaction template so we can play around with map numbers
     template_r = rxn.template_r
 
-    # Get molAtomMapNum->atom dictionary for tempalte reactants and products
+    # Get molAtomMapNum->atom dictionary for template reactants and products
     atoms_rt_map = rxn.atoms_rt_map
     # TODO: cannot change atom map numbers in atoms_rt permanently?
     atoms_pt_map = rxn.atoms_pt_map
@@ -734,16 +737,3 @@ def rdchiralRun(
         return list(final_outcomes), mapped_outcomes
     else:
         return list(final_outcomes)
-
-
-if __name__ == "__main__":
-    reaction_smarts = "[C:1][OH:2]>>[C:1][O:2][C]"
-    reactant_smiles = "OCC(=O)OCCCO"
-
-    # Pre-initialize
-    rxn = rdchiralReaction(reaction_smarts)
-    reactants = rdchiralReactants(reactant_smiles)
-    outcomes = rdchiralRun(rxn, reactants)
-
-    # Get list of atoms that changed as well
-    outcomes, mapped_outcomes = rdchiralRun(rxn, reactants, return_mapped=True)
