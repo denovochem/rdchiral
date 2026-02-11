@@ -7,7 +7,6 @@ from rdkit import Chem
 from rdkit.Chem import rdChemReactions, rdmolfiles
 from rdkit.Chem.rdchem import ChiralType
 
-from rdchiral.function_cache import mol_from_smiles
 from rdchiral.utils import atoms_are_different
 
 VERBOSE = False
@@ -148,7 +147,7 @@ def mols_from_smiles_list(all_smiles: List[str]) -> List[Chem.Mol]:
     for smiles in all_smiles:
         if not smiles:
             continue
-        mols.append(mol_from_smiles(smiles))
+        mols.append(Chem.MolFromSmiles(smiles))
     return mols
 
 
@@ -255,7 +254,7 @@ def check_tetrahedral_centers_equivalent(atom1: Chem.Atom, atom2: Chem.Atom) -> 
     atom1_frag = get_frag_around_tetrahedral_center(
         atom1.GetOwningMol(), atom1.GetIdx()
     )
-    atom1_neighborhood = mol_from_smiles(atom1_frag, sanitize=False)
+    atom1_neighborhood = Chem.MolFromSmiles(atom1_frag, sanitize=False)
     for matched_ids in atom2.GetOwningMol().GetSubstructMatches(
         atom1_neighborhood, useChirality=True
     ):
@@ -874,7 +873,7 @@ def get_fragments_for_changed_atoms(
         fragments += "(" + this_fragment + ")."
         mols_changed.append(
             Chem.MolToSmiles(
-                clear_mapnum(mol_from_smiles(Chem.MolToSmiles(mol, True))), True
+                clear_mapnum(Chem.MolFromSmiles(Chem.MolToSmiles(mol, True))), True
             )
         )
 

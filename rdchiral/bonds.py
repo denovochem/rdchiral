@@ -3,9 +3,6 @@ from typing import Dict, List, Optional, Set, Tuple
 import rdkit.Chem as Chem
 from rdkit.Chem.rdchem import BondDir, BondType
 
-from rdchiral.function_cache import get_mol_bonds
-from rdchiral.utils import PLEVEL
-
 BondDirOpposite = {
     BondDir.ENDUPRIGHT: BondDir.ENDDOWNRIGHT,
     BondDir.ENDDOWNRIGHT: BondDir.ENDUPRIGHT,
@@ -24,7 +21,7 @@ def bond_dirs_by_mapnum(mol: Chem.Mol) -> Dict[Tuple[int, int], BondDir]:
        dict: Mapping from (atom_map1, atom_map2) -> BondDir
     """
     bond_dirs_by_mapnum: Dict[Tuple[int, int], BondDir] = {}
-    for b in get_mol_bonds(mol):
+    for b in mol.GetBonds():
         i = None
         j = None
         if b.GetBeginAtom().GetAtomMapNum():
@@ -88,9 +85,7 @@ def enumerate_possible_cistrans_defs(
     required_bond_defs: Dict[Tuple[int, int, int, int], Tuple[BondDir, BondDir]] = {}
     required_bond_defs_coreatoms: Set[Tuple[int, int]] = set()
 
-    if PLEVEL >= 10:
-        print("Looking at initializing template frag")
-    for b in get_mol_bonds(template_r):
+    for b in template_r.GetBonds():
         if b.GetBondType() != BondType.DOUBLE:
             continue
 
@@ -104,11 +99,6 @@ def enumerate_possible_cistrans_defs(
 
         ba_label = ba.GetAtomMapNum()
         bb_label = bb.GetAtomMapNum()
-
-        if PLEVEL >= 10:
-            print("Found a double bond with potential cis/trans (based on degree)")
-        if PLEVEL >= 10:
-            print("{} {} {}".format(ba_label, Chem.Bond.GetSmarts(b), bb_label))
 
         # Save core atoms so we know that cis/trans was POSSIBLE to specify
         required_bond_defs_coreatoms.add((ba_label, bb_label))
@@ -130,7 +120,7 @@ def enumerate_possible_cistrans_defs(
         #         is the begin atom)
         front_spec = None
         back_spec = None
-        for bab in get_mol_bonds(ba):
+        for bab in ba.GetBonds():
             if bab.GetBondDir() != BondDir.NONE:
                 if bab.GetBeginAtom().GetAtomMapNum() == ba_label:
                     # Bond is in wrong order - flip
@@ -146,14 +136,8 @@ def enumerate_possible_cistrans_defs(
                     break
                 front_spec = bab.GetBondDir()
                 break
-        if front_spec is None:
-            if PLEVEL >= 10:
-                print("Chirality not specified at front end of the bond!")
-        else:
-            if PLEVEL >= 10:
-                print("Front specification: {}".format(front_spec))
-
-            for bbb in get_mol_bonds(bb):
+        if front_spec is not None:
+            for bbb in bb.GetBonds():
                 if bbb.GetBondDir() != BondDir.NONE:
                     # For the "back" specification, the double-bonded atom *should* be the BeginAtom
                     if bbb.GetEndAtom().GetAtomMapNum() == bb_label:
@@ -170,12 +154,6 @@ def enumerate_possible_cistrans_defs(
                         break
                     back_spec = bbb.GetBondDir()
                     break
-        if back_spec is None:
-            if PLEVEL >= 10:
-                print("Chirality not specified at back end of the bond!")
-        else:
-            if PLEVEL >= 10:
-                print("Back specification: {}".format(back_spec))
 
         # Is this an overall unspecified bond? Put it in the dictionary anyway,
         # so there is something to match
@@ -218,12 +196,8 @@ def enumerate_possible_cistrans_defs(
             continue
 
         if front_spec == back_spec:
-            if PLEVEL >= 10:
-                print("-> locally TRANS")
             b.SetProp("localChirality", "trans")
         else:
-            if PLEVEL >= 10:
-                print("--> locally CIS")
             b.SetProp("localChirality", "cis")
 
         possible_defs = {}
@@ -282,10 +256,6 @@ def enumerate_possible_cistrans_defs(
         # Save to the definition of this bond (in either direction)
         required_bond_defs.update(possible_defs)
 
-    if PLEVEL >= 10:
-        print("All bond specs for this template:")
-    if PLEVEL >= 10:
-        print(str([(k, v) for (k, v) in required_bond_defs.items()]))
     return required_bond_defs, required_bond_defs_coreatoms
 
 
@@ -326,7 +296,7 @@ def get_atoms_across_double_bonds(
     ring_info: Chem.RingInfo = mol.GetRingInfo()
     atomrings = ring_info.AtomRings()
 
-    for b in get_mol_bonds(mol):
+    for b in mol.GetBonds():
         if b.GetBondType() != BondType.DOUBLE:
             continue
 
@@ -341,11 +311,6 @@ def get_atoms_across_double_bonds(
         ba_label = ba.GetAtomMapNum()
         bb_label = bb.GetAtomMapNum()
 
-        if PLEVEL >= 5:
-            print("Found a double bond with potential cis/trans (based on degree)")
-        if PLEVEL >= 5:
-            print("{} {} {}".format(ba_label, Chem.Bond.GetSmarts(b), bb_label))
-
         # Try to specify front and back direction separately
         front_mapnums: Optional[Tuple[int, int]] = None
         front_dir: Optional[BondDir] = None
@@ -354,7 +319,7 @@ def get_atoms_across_double_bonds(
         is_implicit = False
         bab = None
         bbb = None
-        for bab in (z for z in get_mol_bonds(ba) if z.GetBondType() != BondType.DOUBLE):
+        for bab in (z for z in ba.GetBonds() if z.GetBondType() != BondType.DOUBLE):
             if bab.GetBondDir() != BondDir.NONE:
                 front_mapnums = (
                     bab.GetBeginAtom().GetAtomMapNum(),
@@ -362,7 +327,7 @@ def get_atoms_across_double_bonds(
                 )
                 front_dir = bab.GetBondDir()
                 break
-        for bbb in (z for z in get_mol_bonds(bb) if z.GetBondType() != BondType.DOUBLE):
+        for bbb in (z for z in bb.GetBonds() if z.GetBondType() != BondType.DOUBLE):
             if bbb.GetBondDir() != BondDir.NONE:
                 back_mapnums = (
                     bbb.GetBeginAtom().GetAtomMapNum(),
@@ -387,13 +352,9 @@ def get_atoms_across_double_bonds(
                             bbb.GetOtherAtomIdx(bb.GetIdx()) in atomring
                         ):
                             # one of these atoms are in the ring, one is outside -> trans
-                            if PLEVEL >= 10:
-                                print("Implicit trans found")
                             front_dir = BondDir.ENDUPRIGHT
                             back_dir = BondDir.ENDUPRIGHT
                         else:
-                            if PLEVEL >= 10:
-                                print("Implicit cis found")
                             front_dir = BondDir.ENDUPRIGHT
                             back_dir = BondDir.ENDDOWNRIGHT
                         is_implicit = True
@@ -453,7 +414,7 @@ def restore_bond_stereo_to_sp2_atom(
         bool: Returns Trueif a bond direction was copied
     """
 
-    for bond_to_spec in get_mol_bonds(a):
+    for bond_to_spec in a.GetBonds():
         if (
             bond_to_spec.GetOtherAtom(a).GetAtomMapNum(),
             a.GetAtomMapNum(),
@@ -466,44 +427,19 @@ def restore_bond_stereo_to_sp2_atom(
                     )
                 ]
             )
-            if PLEVEL >= 2:
-                print(
-                    "Tried to copy bond direction b/w {} and {}".format(
-                        bond_to_spec.GetBeginAtom().GetAtomMapNum(),
-                        bond_to_spec.GetEndAtom().GetAtomMapNum(),
-                    )
-                )
             return True
-
-    # Weird case, like C=C/O >> C=C/Br
-    if PLEVEL >= 2:
-        print(
-            "Bond stereo could not be restored to sp2 atom, missing the branch that was used to define before..."
-        )
 
     if a.GetDegree() == 2:
         # Either the branch used to define was replaced with H (deg 3 -> deg 2)
         # or the branch used to define was reacted (deg 2 -> deg 2)
-        for bond_to_spec in get_mol_bonds(a):
+        for bond_to_spec in a.GetBonds():
             if bond_to_spec.GetBondType() == BondType.DOUBLE:
                 continue
             if not bond_to_spec.GetOtherAtom(a).HasProp("old_mapno"):
                 # new atom, deg2->deg2, assume direction preserved
-                if PLEVEL >= 5:
-                    print(
-                        "Only single-bond attachment to atom {} is new, try to reproduce chirality".format(
-                            a.GetAtomMapNum()
-                        )
-                    )
                 needs_inversion = False
             else:
                 # old atom, just was not used in chirality definition - set opposite
-                if PLEVEL >= 5:
-                    print(
-                        "Only single-bond attachment to atom {} is old, try to reproduce chirality".format(
-                            a.GetAtomMapNum()
-                        )
-                    )
                 needs_inversion = True
 
             for (i, j), bond_dir in bond_dirs_by_mapnum.items():
@@ -517,7 +453,7 @@ def restore_bond_stereo_to_sp2_atom(
 
     if a.GetDegree() == 3:
         # If we lost the branch defining stereochem, it must have been replaced
-        for bond_to_spec in get_mol_bonds(a):
+        for bond_to_spec in a.GetBonds():
             if bond_to_spec.GetBondType() == BondType.DOUBLE:
                 continue
             oa = bond_to_spec.GetOtherAtom(a)
@@ -559,13 +495,11 @@ def correct_conjugated(
 
     final_bond_dirs = bond_dirs_by_mapnum(outcome)
     conjugated: List[Tuple[int, int]] = []
-    for b in get_mol_bonds(outcome):
+    for b in outcome.GetBonds():
         if b.GetIsConjugated():
             conjugated.append(
                 (b.GetBeginAtom().GetAtomMapNum(), b.GetEndAtom().GetAtomMapNum())
             )
-    if PLEVEL >= 2:
-        print("conjugated: ", conjugated)
 
     # connectivity of conjugated systems
     # DFS may be better for large systems
@@ -580,8 +514,6 @@ def correct_conjugated(
                 break
         if not found:
             isolated_conjugated.append({i, j})
-    if PLEVEL >= 2:
-        print("isolated_conjugated: ", isolated_conjugated)
 
     need_to_change_dirs = {}
     inverted_dirs = []
@@ -593,9 +525,6 @@ def correct_conjugated(
                 inverted_dirs.append(pair)
         else:
             new_dirs.append(pair)
-    if PLEVEL >= 2:
-        print("new_dirs: ", new_dirs)
-        print("inverted_dirs: ", inverted_dirs)
 
     isolated_conjugated_need_fix = [False] * len(isolated_conjugated)
     for i, conj in enumerate(isolated_conjugated):
@@ -603,19 +532,15 @@ def correct_conjugated(
             if pair[0] in conj or pair[1] in conj:
                 isolated_conjugated_need_fix[i] = True
                 break
-    if PLEVEL >= 2:
-        print("isolated_conjugated_need_fix: ", isolated_conjugated_need_fix)
 
     for pair in new_dirs:
         for need_fix, conj in zip(isolated_conjugated_need_fix, isolated_conjugated):
             if need_fix and (pair[0] in conj or pair[1] in conj):
                 need_to_change_dirs[pair] = BondDirOpposite[final_bond_dirs[pair]]
                 break
-    if PLEVEL >= 2:
-        print("need_to_change_dirs (final): ", need_to_change_dirs)
 
     changed = False
-    for b in get_mol_bonds(outcome):
+    for b in outcome.GetBonds():
         bam = b.GetBeginAtom().GetAtomMapNum()
         bbm = b.GetEndAtom().GetAtomMapNum()
         if (bam, bbm) in need_to_change_dirs:

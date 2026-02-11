@@ -6,8 +6,6 @@ from typing import Set
 
 import rdkit.Chem as Chem
 
-from rdchiral.function_cache import mol_from_smiles
-
 
 def canonicalize_outcome_smiles(smiles: str, ensure: bool = True) -> str:
     """Uniquify via SMILES string.
@@ -25,7 +23,7 @@ def canonicalize_outcome_smiles(smiles: str, ensure: bool = True) -> str:
 
     """
     if ensure:
-        outcome = mol_from_smiles(smiles)
+        outcome = Chem.MolFromSmiles(smiles)
         if outcome is None:
             return None
 
@@ -61,7 +59,7 @@ def combine_enantiomers_into_racemic(final_outcomes: Set[str]) -> Set[str]:
                 final_outcomes.remove(smiles_inv)
                 # Re-parse smiles so that hydrogens can become implicit
                 smiles = smiles[: match.start()] + smiles[match.end() :]
-                outcome = mol_from_smiles(smiles)
+                outcome = Chem.MolFromSmiles(smiles)
                 if outcome is None:
                     raise ValueError("Horrible mistake when fixing duplicate!")
                 smiles = ".".join(sorted(Chem.MolToSmiles(outcome, True).split(".")))
@@ -112,7 +110,7 @@ def combine_enantiomers_into_racemic(final_outcomes: Set[str]) -> Set[str]:
                 smiles = (
                     smiles[: match.start()] + match.group(2) + smiles[match.end() :]
                 )
-                outcome = mol_from_smiles(smiles)
+                outcome = Chem.MolFromSmiles(smiles)
                 if outcome is None:
                     raise ValueError("Horrible mistake when fixing duplicate!")
                 smiles = ".".join(sorted(Chem.MolToSmiles(outcome, True).split(".")))

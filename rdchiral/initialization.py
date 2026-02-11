@@ -11,7 +11,6 @@ from rdchiral.bonds import (
     get_atoms_across_double_bonds,
 )
 from rdchiral.chiral import template_atom_could_have_been_tetra
-from rdchiral.function_cache import mol_from_smiles
 
 BondDirOpposite = {
     AllChem.BondDir.ENDUPRIGHT: AllChem.BondDir.ENDDOWNRIGHT,
@@ -242,7 +241,7 @@ def initialize_reactants_from_smiles(
         rdkit.Chem.rdchem.Mol: RDKit molecule
     """
     # Initialize reactants
-    reactants: Chem.Mol = mol_from_smiles(reactant_smiles)
+    reactants: Chem.Mol = Chem.MolFromSmiles(reactant_smiles)
     Chem.AssignStereochemistry(reactants, flagPossibleStereoCenters=True)
     reactants.UpdatePropertyCache(strict=False)
     # To have the product atoms match reactant atoms, we
