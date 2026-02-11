@@ -7,7 +7,6 @@ from typing import Set
 import rdkit.Chem as Chem
 
 from rdchiral.function_cache import mol_from_smiles
-from rdchiral.utils import PLEVEL
 
 
 def canonicalize_outcome_smiles(smiles: str, ensure: bool = True) -> str:
@@ -28,10 +27,6 @@ def canonicalize_outcome_smiles(smiles: str, ensure: bool = True) -> str:
     if ensure:
         outcome = mol_from_smiles(smiles)
         if outcome is None:
-            if PLEVEL >= 1:
-                print("~~ could not parse self?")
-            if PLEVEL >= 1:
-                print("Attempted SMILES: {}", smiles)
             return None
 
         smiles = Chem.MolToSmiles(outcome, True)

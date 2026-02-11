@@ -18,9 +18,8 @@ from rdchiral.chiral import (
     template_atom_could_have_been_tetra,
 )
 from rdchiral.clean import canonicalize_outcome_smiles, combine_enantiomers_into_racemic
-from rdchiral.function_cache import get_mol_atoms, get_mol_bonds
 from rdchiral.initialization import rdchiralReactants, rdchiralReaction
-from rdchiral.utils import PLEVEL, atoms_are_different
+from rdchiral.utils import atoms_are_different
 
 """
 This file contains the main functions for running reactions. 
@@ -140,8 +139,6 @@ def rdchiralRun(
     ###############################################################################
     # Run naive RDKit on ACHIRAL version of molecules
     outcomes: Tuple[Any, ...] = rxn.rxn.RunReactants((reactants.reactants_achiral,))
-    if PLEVEL >= (1):
-        print("Using naive RunReactants, {} outcomes".format(len(outcomes)))
     if not outcomes:
         if return_mapped:
             return [], {}
@@ -170,15 +167,9 @@ def rdchiralRun(
         ###############################################################################
         # Look for new atoms in products that were not in
         # reactants (e.g., LGs for a retro reaction)
-        if PLEVEL >= (2):
-            print(
-                "Processing {}".format(
-                    str([Chem.MolToSmiles(x, True) for x in outcome])
-                )
-            )
         unmapped = 900
         for m in outcome:
-            for a in get_mol_atoms(m):
+            for a in m.GetAtoms():
                 # Assign map number to outcome based on react_atom_idx
                 if a.HasProp("react_atom_idx"):
                     a.SetAtomMapNum(
@@ -187,8 +178,6 @@ def rdchiralRun(
                 if not a.GetAtomMapNum():
                     a.SetAtomMapNum(unmapped)
                     unmapped += 1
-        if PLEVEL >= 2:
-            print("Added {} map numbers to product".format(unmapped - 900))
         ###############################################################################
 
         ###############################################################################
@@ -198,7 +187,7 @@ def rdchiralRun(
         atoms_rt = {
             a.GetAtomMapNum(): atoms_rt_map[a.GetIntProp("old_mapno")]
             for m in outcome
-            for a in get_mol_atoms(m)
+            for a in m.GetAtoms()
             if a.HasProp("old_mapno")
         }
 
@@ -218,8 +207,6 @@ def rdchiralRun(
             atom_chirality_matches(atoms_rt[i], atoms_r[i]) for i in atoms_rt
         ):
             if match == 0:
-                if PLEVEL >= 2:
-                    print("Chirality violated! Should not have gotten this match")
                 skip_outcome = True
                 break
             elif match == 2:  # ambiguous case
@@ -227,16 +214,10 @@ def rdchiralRun(
             elif prev is None:
                 prev = match
             elif match != prev:
-                if PLEVEL >= 2:
-                    print(
-                        "Part of the template matched reactant chirality, part is inverted! Should not match"
-                    )
                 skip_outcome = True
                 break
         if skip_outcome:
             continue
-        if PLEVEL >= 2:
-            print("Chirality matches! Just checked with atom_chirality_matches")
 
         # Check bond chirality - iterate through reactant double bonds where
         # chirality is specified (or not). atoms defined by map number
@@ -265,20 +246,6 @@ def rdchiralRun(
                         dirs_template == (BondDir.NONE, BondDir.NONE) and is_implicit
                     )
                 ):
-                    if PLEVEL >= 5:
-                        print("Reactant bond chirality does not match template!")
-                    if PLEVEL >= 5:
-                        print("Based on map numbers...")
-                    if PLEVEL >= 5:
-                        print("  rct: {} -> {}".format(matched_atom_map_nums, dirs))
-                    if PLEVEL >= 5:
-                        print(
-                            "  tmp: {} -> {}".format(
-                                matched_atom_map_nums, dirs_template
-                            )
-                        )
-                    if PLEVEL >= 5:
-                        print("skipping this outcome, should not have matched...")
                     skip_outcome = True
                     break
         if skip_outcome:
@@ -295,33 +262,25 @@ def rdchiralRun(
         mapnums = [
             a.GetAtomMapNum()
             for m in outcome
-            for a in get_mol_atoms(m)
+            for a in m.GetAtoms()
             if a.GetAtomMapNum()
         ]
         if len(mapnums) != len(set(mapnums)):  # duplicate?
-            if PLEVEL >= 1:
-                print("Found duplicate mapnums in product - need to stitch")
             # need to do a fancy merge
             merged_mol = Chem.RWMol(outcome[0])
             merged_map_to_id = {
                 a.GetAtomMapNum(): a.GetIdx()
-                for a in get_mol_atoms(outcome[0])
+                for a in outcome[0].GetAtoms()
                 if a.GetAtomMapNum()
             }
             for j in range(1, len(outcome)):
                 new_mol = outcome[j]
-                for a in get_mol_atoms(new_mol):
+                for a in new_mol.GetAtoms():
                     if a.GetAtomMapNum() not in merged_map_to_id:
                         merged_map_to_id[a.GetAtomMapNum()] = merged_mol.AddAtom(a)
-                for b in get_mol_bonds(new_mol):
+                for b in new_mol.GetBonds():
                     bi = b.GetBeginAtom().GetAtomMapNum()
                     bj = b.GetEndAtom().GetAtomMapNum()
-                    if PLEVEL >= 10:
-                        print(
-                            "stitching bond between {} and {} in stich has chirality {}, {}".format(
-                                bi, bj, b.GetStereo(), b.GetBondDir()
-                            )
-                        )
                     if not merged_mol.GetBondBetweenAtoms(
                         merged_map_to_id[bi], merged_map_to_id[bj]
                     ):
@@ -335,19 +294,11 @@ def rdchiralRun(
                             merged_map_to_id[bi], merged_map_to_id[bj]
                         ).SetBondDir(b.GetBondDir())
             outcome = merged_mol.GetMol()
-            if PLEVEL >= 1:
-                print(
-                    "Merged editable mol, converted back to real mol, {}".format(
-                        Chem.MolToSmiles(outcome, True)
-                    )
-                )
         else:
             new_outcome = outcome[0]
             for j in range(1, len(outcome)):
                 new_outcome = rdmolops.CombineMols(new_outcome, outcome[j])
             outcome = new_outcome
-        if PLEVEL >= 2:
-            print("Converted all outcomes to single molecules")
         ###############################################################################
 
         ###############################################################################
@@ -355,11 +306,11 @@ def rdchiralRun(
         # atoms_rt and atoms_p will be outcome-specific.
         atoms_pt = {
             a.GetAtomMapNum(): atoms_pt_map[a.GetIntProp("old_mapno")]
-            for a in get_mol_atoms(outcome)
+            for a in outcome.GetAtoms()
             if a.HasProp("old_mapno")
         }
         atoms_p = {
-            a.GetAtomMapNum(): a for a in get_mol_atoms(outcome) if a.GetAtomMapNum()
+            a.GetAtomMapNum(): a for a in outcome.GetAtoms() if a.GetAtomMapNum()
         }
 
         # Set map numbers of product template
@@ -392,14 +343,10 @@ def rdchiralRun(
                         # the reactant template did not specify a bond between those atoms (e.g., intentionally destroy)
                         missing_bonds.append((i, j, b))
         if missing_bonds:
-            if PLEVEL >= 1:
-                print(
-                    "Product is missing non-reacted bonds that were present in reactants!"
-                )
             outcome = Chem.RWMol(outcome)
             rwmol_map_to_id = {
                 a.GetAtomMapNum(): a.GetIdx()
-                for a in get_mol_atoms(outcome)
+                for a in outcome.GetAtoms()
                 if a.GetAtomMapNum()
             }
             for i, j, b in missing_bonds:
@@ -412,13 +359,8 @@ def rdchiralRun(
                 new_b.SetIsAromatic(b.GetIsAromatic())
             outcome = outcome.GetMol()
             atoms_p = {
-                a.GetAtomMapNum(): a
-                for a in get_mol_atoms(outcome)
-                if a.GetAtomMapNum()
+                a.GetAtomMapNum(): a for a in outcome.GetAtoms() if a.GetAtomMapNum()
             }
-        else:
-            if PLEVEL >= 3:
-                print("No missing bonds")
         ###############################################################################
 
         # Now that we've fixed any bonds, connectivity is set. This is a good time
@@ -427,38 +369,20 @@ def rdchiralRun(
         try:
             Chem.SanitizeMol(outcome)
             outcome.UpdatePropertyCache()
-        except ValueError as e:
-            if PLEVEL >= 1:
-                print("{}, {}".format(Chem.MolToSmiles(outcome, True), e))
+        except ValueError:
             continue
 
         ###############################################################################
         # Correct tetra chirality in the outcome
         tetra_copied_from_reactants = []
-        for a in get_mol_atoms(outcome):
+        for a in outcome.GetAtoms():
             # Participants in reaction core (from reactants) will have old_mapno
             # Spectators present in reactants will have react_atom_idx
             # ...so new atoms will have neither!
             if not a.HasProp("old_mapno"):
                 # Not part of the reactants template
 
-                if not a.HasProp("react_atom_idx"):
-                    # Atoms only appear in product template - their chirality
-                    # should be properly instantiated by RDKit...hopefully...
-                    if PLEVEL >= 4:
-                        print(
-                            "Atom {} created by product template, should have right chirality".format(
-                                a.GetAtomMapNum()
-                            )
-                        )
-
-                else:
-                    if PLEVEL >= 4:
-                        print(
-                            "Atom {} outside of template, copy chirality from reactants".format(
-                                a.GetAtomMapNum()
-                            )
-                        )
+                if a.HasProp("react_atom_idx"):
                     copy_chirality(atoms_r[a.GetAtomMapNum()], a)
                     if a.GetChiralTag() != ChiralType.CHI_UNSPECIFIED:
                         tetra_copied_from_reactants.append(a)
@@ -467,21 +391,7 @@ def rdchiralRun(
                 # Part of reactants and reaction core
 
                 if template_atom_could_have_been_tetra(atoms_rt[a.GetAtomMapNum()]):
-                    if PLEVEL >= 3:
-                        print(
-                            "Atom {} was in rct template (could have been tetra)".format(
-                                a.GetAtomMapNum()
-                            )
-                        )
-
                     if template_atom_could_have_been_tetra(atoms_pt[a.GetAtomMapNum()]):
-                        if PLEVEL >= 3:
-                            print(
-                                "Atom {} in product template could have been tetra, too".format(
-                                    a.GetAtomMapNum()
-                                )
-                            )
-
                         # Was the product template specified?
 
                         if (
@@ -489,16 +399,10 @@ def rdchiralRun(
                             == ChiralType.CHI_UNSPECIFIED
                         ):
                             # No, leave unspecified in product
-                            if PLEVEL >= 3:
-                                print(
-                                    "...but it is not specified in product, so destroy chirality"
-                                )
                             a.SetChiralTag(ChiralType.CHI_UNSPECIFIED)
 
                         else:
                             # Yes
-                            if PLEVEL >= 3:
-                                print("...and product is specified")
 
                             # Was the reactant template specified?
 
@@ -507,18 +411,10 @@ def rdchiralRun(
                                 == ChiralType.CHI_UNSPECIFIED
                             ):
                                 # No, so the reaction introduced chirality
-                                if PLEVEL >= 3:
-                                    print(
-                                        "...but reactant template was not, so copy from product template"
-                                    )
                                 copy_chirality(atoms_pt[a.GetAtomMapNum()], a)
 
                             else:
                                 # Yes, so we need to check if chirality should be preserved or inverted
-                                if PLEVEL >= 3:
-                                    print(
-                                        "...and reactant template was, too! copy from reactants"
-                                    )
                                 copy_chirality(atoms_r[a.GetAtomMapNum()], a)
                                 if (
                                     atom_chirality_matches(
@@ -527,75 +423,28 @@ def rdchiralRun(
                                     )
                                     == -1
                                 ):
-                                    if PLEVEL >= 3:
-                                        print(
-                                            "but! reactant template and product template have opposite stereochem, so invert"
-                                        )
                                     a.InvertChirality()
 
-                    else:
-                        # Reactant template chiral, product template not - the
-                        # reaction is supposed to destroy chirality, so leave
-                        # unspecified
-                        if PLEVEL >= 3:
-                            print(
-                                "If reactant template could have been "
-                                + "chiral, but the product template could not, then we dont need "
-                                + "to worry about specifying product atom chirality"
-                            )
-
                 else:
-                    if PLEVEL >= 3:
-                        print(
-                            "Atom {} could not have been chiral in reactant template".format(
-                                a.GetAtomMapNum()
-                            )
-                        )
-
                     if not template_atom_could_have_been_tetra(
                         atoms_pt[a.GetAtomMapNum()]
                     ):
-                        if PLEVEL >= 3:
-                            print(
-                                "Atom {} also could not have been chiral in product template",
-                                a.GetAtomMapNum(),
-                            )
-                        if PLEVEL >= 3:
-                            print("...so, copy chirality from reactant instead")
                         copy_chirality(atoms_r[a.GetAtomMapNum()], a)
                         if a.GetChiralTag() != ChiralType.CHI_UNSPECIFIED:
                             tetra_copied_from_reactants.append(a)
 
                     else:
-                        if PLEVEL >= 3:
-                            print(
-                                "Atom {} could/does have product template chirality!".format(
-                                    a.GetAtomMapNum()
-                                )
-                            )
-                        if PLEVEL >= 3:
-                            print("...so, copy chirality from product template")
                         copy_chirality(atoms_pt[a.GetAtomMapNum()], a)
 
-            if PLEVEL >= 3:
-                print("New chiral tag {}".format(a.GetChiralTag()))
         if skip_outcome:
-            if PLEVEL >= 2:
-                print("Skipping this outcome - chirality broken?")
             continue
-        if PLEVEL >= 2:
-            print(
-                "After attempting to re-introduce chirality, outcome = {}".format(
-                    Chem.MolToSmiles(outcome, True)
-                )
-            )
 
         ###############################################################################
 
         ###############################################################################
         # Correct bond directionality in the outcome
         initial_bond_dirs = bond_dirs_by_mapnum(outcome)
-        for b in get_mol_bonds(outcome):
+        for b in outcome.GetBonds():
             if b.GetBondType() != BondType.DOUBLE:
                 continue
 
@@ -610,35 +459,14 @@ def rdchiralRun(
             if ba.GetDegree() == 1 or bb.GetDegree() == 1:
                 continue
 
-            if PLEVEL >= 5:
-                print(
-                    "Looking at outcome bond {}={}".format(
-                        ba.GetAtomMapNum(), bb.GetAtomMapNum()
-                    )
-                )
-
             if ba.HasProp("old_mapno") and bb.HasProp("old_mapno"):
                 # Need to rely on templates for bond chirality, both atoms were
                 # in the reactant template
-                if PLEVEL >= 5:
-                    print(
-                        "Both atoms in this double bond were in the reactant template"
-                    )
                 if (
                     ba.GetIntProp("old_mapno"),
                     bb.GetIntProp("old_mapno"),
                 ) in rxn.required_bond_defs_coreatoms:
-                    if PLEVEL >= 5:
-                        print(
-                            "and reactant template *could* have specified the chirality!"
-                        )
-                    if PLEVEL >= 5:
-                        print("..product should be property instantiated")
                     continue
-                if PLEVEL >= 5:
-                    print(
-                        "But it was impossible to have specified chirality (e.g., aux C=C for context)"
-                    )
 
             elif not ba.HasProp("react_atom_idx") and not bb.HasProp("react_atom_idx"):
                 # The atoms were both created by the product template, so any bond
@@ -649,12 +477,6 @@ def rdchiralRun(
             # Need to copy from reactants, this double bond was simply carried over,
             # *although* one of the atoms could have reacted and been an auxilliary
             # atom in the reaction, e.g., C/C=C(/CO)>>C/C=C(/C[Br])
-            if PLEVEL >= 5:
-                print(
-                    "Restoring cis/trans character of bond {}={} from reactants".format(
-                        ba.GetAtomMapNum(), bb.GetAtomMapNum()
-                    )
-                )
 
             # Start with setting the BeginAtom
             begin_atom_specified = restore_bond_stereo_to_sp2_atom(
@@ -667,26 +489,10 @@ def rdchiralRun(
                 continue
 
             # Look at other side of the bond now, the EndAtom
-            end_atom_specified = restore_bond_stereo_to_sp2_atom(
-                bb, reactants.bond_dirs_by_mapnum
-            )
-            if not end_atom_specified:
-                # note: this can happen if C=C/C-N turns into C=C/C=N
-                if PLEVEL >= 1:
-                    print(reactants.bond_dirs_by_mapnum)
-                    print(ba.GetAtomMapNum())
-                    print(bb.GetAtomMapNum())
-                    print(Chem.MolToSmiles(reactants.reactants, True))
-                    print(Chem.MolToSmiles(outcome, True))
-                    print(
-                        "Uh oh, looks like bond direction is only specified for half of this bond?"
-                    )
+            _ = restore_bond_stereo_to_sp2_atom(bb, reactants.bond_dirs_by_mapnum)
 
         # Need to check whether a conjugated system was changed.
-        corrected = correct_conjugated(initial_bond_dirs, outcome)
-        if corrected:
-            if PLEVEL >= 5:
-                print("Found a corrupted conjugated system and corrected it")
+        _ = correct_conjugated(initial_bond_dirs, outcome)
 
         ###############################################################################
 
@@ -697,7 +503,7 @@ def rdchiralRun(
         mapped_outcome = Chem.MolToSmiles(outcome, True)
 
         if not keep_mapnums:
-            for a in get_mol_atoms(outcome):
+            for a in outcome.GetAtoms():
                 a.SetAtomMapNum(0)
 
         # Now, check to see if we have destroyed chirality
@@ -711,10 +517,6 @@ def rdchiralRun(
             Chem.AssignStereochemistry(outcome, cleanIt=True, force=True)
             for a in tetra_copied_from_reactants:
                 if a.GetChiralTag() == ChiralType.CHI_UNSPECIFIED:
-                    if PLEVEL >= 2:
-                        print(
-                            "Auxiliary reactant atom was chiral, now is broken -> skip outcome"
-                        )
                     skip_outcome = True
                     break
         if skip_outcome:

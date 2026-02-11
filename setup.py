@@ -23,9 +23,6 @@ if use_mypyc:
         ]
 
         ext_modules = mypycify(mypyc_targets)
-        print("=" * 70)
-        print("Building rdchiral with mypyc compilation for better performance")
-        print("=" * 70)
 
     except Exception as e:
         warnings.warn(

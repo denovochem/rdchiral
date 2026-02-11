@@ -6,8 +6,7 @@ from rdkit import Chem
 from rdkit.Chem import rdchem
 from rdkit.Chem.rdchem import BondType, ChiralType
 
-from rdchiral.function_cache import get_mol_bonds
-from rdchiral.utils import PLEVEL, parity4
+from rdchiral.utils import parity4
 
 
 def template_atom_could_have_been_tetra(
@@ -55,21 +54,13 @@ def copy_chirality(a_src: Chem.Atom, a_new: Chem.Atom) -> None:
     if a_new.GetDegree() < 3:
         return
     if a_new.GetDegree() == 3 and any(
-        b.GetBondType() != BondType.SINGLE for b in get_mol_bonds(a_new)
+        b.GetBondType() != BondType.SINGLE for b in a_new.GetBonds()
     ):
         return
 
-    if PLEVEL >= 3:
-        print(
-            "For mapnum {}, copying src {} chirality tag to new".format(
-                a_src.GetAtomMapNum(), a_src.GetChiralTag()
-            )
-        )
     a_new.SetChiralTag(a_src.GetChiralTag())
 
     if atom_chirality_matches(a_src, a_new) == -1:
-        if PLEVEL >= 3:
-            print("For mapnum {}, inverting chirality".format(a_new.GetAtomMapNum()))
         a_new.InvertChirality()
 
 
@@ -92,53 +83,21 @@ def atom_chirality_matches(a_tmp: Chem.Atom, a_mol: Chem.Atom) -> int:
     """
     if a_mol.GetChiralTag() == ChiralType.CHI_UNSPECIFIED:
         if a_tmp.GetChiralTag() == ChiralType.CHI_UNSPECIFIED:
-            if PLEVEL >= 3:
-                print(
-                    "atom {} is achiral & achiral -> match".format(
-                        a_mol.GetAtomMapNum()
-                    )
-                )
             return 2  # achiral template, achiral molecule -> match
         # What if the template was chiral, but the reactant isn't just due to symmetry?
         if not a_mol.HasProp("_ChiralityPossible"):
             # It's okay to make a match, as long as the product is achiral (even
             # though the product template will try to impose chirality)
-            if PLEVEL >= 3:
-                print(
-                    "atom {} is specified in template, but cant possibly be chiral in mol".format(
-                        a_mol.GetAtomMapNum()
-                    )
-                )
             return 2
 
         # Discussion: figure out if we want this behavior - should a chiral template
         # be applied to an achiral molecule? For the retro case, if we have
         # a retro reaction that requires a specific stereochem, return False;
         # however, there will be many cases where the reaction would probably work
-        if PLEVEL >= 3:
-            print(
-                "atom {} is achiral in mol, but specified in template".format(
-                    a_mol.GetAtomMapNum()
-                )
-            )
         return 0
     if a_tmp.GetChiralTag() == ChiralType.CHI_UNSPECIFIED:
-        if PLEVEL >= 3:
-            print(
-                "Reactant {} atom chiral, rtemplate achiral...".format(
-                    a_tmp.GetAtomMapNum()
-                )
-            )
         if template_atom_could_have_been_tetra(a_tmp):
-            if PLEVEL >= 3:
-                print(
-                    "...and that atom could have had its chirality specified! no_match"
-                )
             return 0
-        if PLEVEL >= 3:
-            print(
-                "...but the rtemplate atom could not have had chirality specified, match anyway"
-            )
         return 2
 
     mapnums_tmp: List[int] = []
@@ -163,14 +122,6 @@ def atom_chirality_matches(a_tmp: Chem.Atom, a_mol: Chem.Atom) -> int:
         mapnums_mol.append(-1)  # H
 
     try:
-        if PLEVEL >= 10:
-            print(str(mapnums_tmp))
-        if PLEVEL >= 10:
-            print(str(mapnums_mol))
-        if PLEVEL >= 10:
-            print(str(a_tmp.GetChiralTag()))
-        if PLEVEL >= 10:
-            print(str(a_mol.GetChiralTag()))
         only_in_src: List[int] = [i for i in mapnums_tmp if i not in mapnums_mol][
             ::-1
         ]  # reverse for popping
@@ -180,27 +131,11 @@ def atom_chirality_matches(a_tmp: Chem.Atom, a_mol: Chem.Atom) -> int:
             mol_parity = parity4(
                 [i if i in mapnums_tmp else only_in_src.pop() for i in mapnums_mol]
             )
-            if PLEVEL >= 10:
-                print(str(tmp_parity))
-            if PLEVEL >= 10:
-                print(str(mol_parity))
             parity_matches = tmp_parity == mol_parity
             tag_matches = a_tmp.GetChiralTag() == a_mol.GetChiralTag()
             chirality_matches = parity_matches == tag_matches
-            if PLEVEL >= 2:
-                print(
-                    "mapnum {} chiral match? {}".format(
-                        a_tmp.GetAtomMapNum(), chirality_matches
-                    )
-                )
             return 1 if chirality_matches else -1
         else:
-            if PLEVEL >= 2:
-                print(
-                    "mapnum {} chiral match? Based on mapnum lists, ambiguous -> True".format(
-                        a_tmp.GetAtomMapNum()
-                    )
-                )
             return 2  # ambiguous case, just return for now
 
     except IndexError as e:

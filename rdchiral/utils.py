@@ -4,13 +4,6 @@ from typing import List, Tuple
 
 from rdkit import Chem
 
-PLEVEL = 0
-
-
-def vprint(level: int, txt: str, *args) -> None:
-    if PLEVEL >= level:
-        print(txt.format(*args))
-
 
 def parity4(data: List[int]) -> int:
     """
