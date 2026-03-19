@@ -48,7 +48,11 @@ class rdchiralReaction(object):
         )
 
         # Combine template fragments so we can play around with mapnums
-        self.template_r, self.template_p = get_template_frags_from_rxn(self.rxn)
+        template_r, template_p = _get_template_frags_from_rxn(self.rxn)
+        self.template_r_orig: Chem.Mol = Chem.Mol(template_r)
+        self.template_p_orig: Chem.Mol = Chem.Mol(template_p)
+        self.template_r: Chem.Mol = Chem.Mol(self.template_r_orig)
+        self.template_p: Chem.Mol = Chem.Mol(self.template_p_orig)
 
         # Define molAtomMapNumber->atom dictionary for template rct and prd
         self.atoms_rt_map: Dict[int, Chem.Atom] = {
@@ -64,10 +68,10 @@ class rdchiralReaction(object):
 
         # Back-up the mapping for the reaction
         self.atoms_rt_idx_to_map: Dict[int, int] = {
-            a.GetIdx(): a.GetAtomMapNum() for a in self.template_r.GetAtoms()
+            a.GetIdx(): a.GetAtomMapNum() for a in self.template_r_orig.GetAtoms()
         }
         self.atoms_pt_idx_to_map: Dict[int, int] = {
-            a.GetIdx(): a.GetAtomMapNum() for a in self.template_p.GetAtoms()
+            a.GetIdx(): a.GetAtomMapNum() for a in self.template_p_orig.GetAtoms()
         }
 
         # Check consistency (this should not be necessary...)
@@ -97,12 +101,20 @@ class rdchiralReaction(object):
             enumerate_possible_cistrans_defs(self.template_r)
         )
 
+        self.template_has_tetra_stereo: bool = _has_tetra_stereo(
+            self.template_r
+        ) or _has_tetra_stereo(self.template_p)
+        self.template_has_doublebond_stereo: bool = _has_doublebond_stereo(
+            self.template_r
+        ) or _has_doublebond_stereo(self.template_p)
+        self.template_is_chiral: bool = (
+            self.template_has_tetra_stereo or self.template_has_doublebond_stereo
+        )
+
     def reset(self) -> None:
         """Reset atom map numbers for template fragment atoms"""
-        for idx, mapnum in self.atoms_rt_idx_to_map.items():
-            self.template_r.GetAtomWithIdx(idx).SetAtomMapNum(mapnum)
-        for idx, mapnum in self.atoms_pt_idx_to_map.items():
-            self.template_p.GetAtomWithIdx(idx).SetAtomMapNum(mapnum)
+        self.template_r = self.template_r_orig
+        self.template_p = self.template_p_orig
 
 
 class rdchiralReactants(object):
@@ -111,7 +123,7 @@ class rdchiralReactants(object):
 
     Attributes:
         reactant_smiles (str): Reactant SMILES string
-        reactants (rdkit.Chem.rdchem.Mol): RDKit Molecule create from `initialize_reactants_from_smiles`
+        reactants (rdkit.Chem.rdchem.Mol): RDKit Molecule create from `_initialize_reactants_from_smiles`
         atoms_r (dict): Dictionary mapping from atom map number to atom in `reactants` Molecule
         reactants_achiral (rdkit.Chem.rdchem.Mol): achiral version of `reactants`
         bonds_by_mapnum (list): List of reactant bonds
@@ -133,7 +145,7 @@ class rdchiralReactants(object):
         self.custom_mapping: bool = custom_reactant_mapping
 
         # Initialize into RDKit mol
-        self.reactants: Chem.Mol = initialize_reactants_from_smiles(
+        self.reactants: Chem.Mol = _initialize_reactants_from_smiles(
             reactant_smiles, custom_reactant_mapping
         )
 
@@ -170,6 +182,14 @@ class rdchiralReactants(object):
         self.atoms_across_double_bonds: List[
             Tuple[Tuple[int, int, int, int], Tuple[BondDir, BondDir], bool]
         ] = get_atoms_across_double_bonds(self.reactants)
+
+        self.reactants_has_tetra_stereo: bool = _has_tetra_stereo(self.reactants)
+        self.reactants_has_doublebond_stereo: bool = _has_doublebond_stereo(
+            self.reactants
+        )
+        self.reactants_is_chiral: bool = (
+            self.reactants_has_tetra_stereo or self.reactants_has_doublebond_stereo
+        )
 
         self._idx_to_map_num: Dict[int, int] = {
             a.GetIdx(): a.GetAtomMapNum() for a in self.reactants.GetAtoms()
@@ -229,7 +249,7 @@ def initialize_rxn_from_smarts(
     return rxn
 
 
-def initialize_reactants_from_smiles(
+def _initialize_reactants_from_smiles(
     reactant_smiles: str, custom_reactant_mapping: bool
 ) -> Chem.Mol:
     """Initialize RDKit molecule from SMILES string
@@ -253,7 +273,7 @@ def initialize_reactants_from_smiles(
     return reactants
 
 
-def get_template_frags_from_rxn(
+def _get_template_frags_from_rxn(
     rxn: rdChemReactions.ChemicalReaction,
 ) -> Tuple[Chem.Mol, Chem.Mol]:
     """Get template fragments from RDKit reaction object
@@ -280,3 +300,11 @@ def get_template_frags_from_rxn(
         else:
             template_p = rdmolops.CombineMols(template_p, prd)
     return template_r, template_p
+
+
+def _has_tetra_stereo(mol: Chem.Mol) -> bool:
+    return any(a.GetChiralTag() != ChiralType.CHI_UNSPECIFIED for a in mol.GetAtoms())
+
+
+def _has_doublebond_stereo(mol: Chem.Mol) -> bool:
+    return any(b.GetBondDir() != BondDir.NONE for b in mol.GetBonds())

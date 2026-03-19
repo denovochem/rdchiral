@@ -5,8 +5,11 @@
 !.github/workflows/
 !.github/workflows/ci.yml
 !.github/workflows/publish.yml
+!.github/workflows/docs.yml
 !.gitignore
 !.gitattributes
+!speed_benchmark_script.py
+!run_speed_benchmark_envs.py
 !LICENSE
 !README.md
 !mkdocs.yml

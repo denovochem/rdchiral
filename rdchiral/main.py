@@ -144,6 +144,15 @@ def rdchiralRun(
             return [], {}
         else:
             return []
+
+    ## If both reactants and template are achiral, we can return the outcomes directly
+    ## TODO: handle intramolecular reactions, return mapping
+    # if not reactants.reactants_is_chiral and not rxn.template_is_chiral:
+    #     if return_mapped:
+    #         return list(set([Chem.MolToSmiles(x[0]) for x in outcomes])), {}
+    #     else:
+    #         return list(set([Chem.MolToSmiles(x[0]) for x in outcomes]))
+
     ###############################################################################
 
     ###############################################################################
@@ -317,7 +326,7 @@ def rdchiralRun(
         # note: this is okay to do within the loop, because ALL atoms must be matched
         # in the templates, so the map numbers will get overwritten every time
         # This makes it easier to check parity changes
-        for i, a in atoms_p.items():
+        for i, a in atoms_pt.items():
             a.SetAtomMapNum(i)
         ###############################################################################
 
