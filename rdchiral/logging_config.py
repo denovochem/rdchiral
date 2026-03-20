@@ -5,7 +5,6 @@ from typing import Any
 
 from loguru import logger
 
-# Default log format with more detailed traceback
 DEFAULT_FORMAT = (
     "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
     "<level>{level: <8}</level> | "
@@ -13,7 +12,6 @@ DEFAULT_FORMAT = (
     "<level>{message}</level>"
 )
 
-# More detailed format for error logs
 ERROR_FORMAT = (
     "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
     "<level>{level: <8}</level> | "
@@ -24,7 +22,6 @@ ERROR_FORMAT = (
     "{exception}</red>"
 )
 
-# Log levels for different environments
 LOG_LEVELS = {
     "development": "DEBUG",
     "testing": "INFO",
@@ -32,23 +29,10 @@ LOG_LEVELS = {
     "default": "WARNING",
 }
 
-# Default log directory - using absolute path to project root
-PROJECT_ROOT = Path(__file__).parent.parent.parent  # Go up three dirs
-LOG_DIR = PROJECT_ROOT / "logs"
-LOG_DIR.mkdir(parents=True, exist_ok=True)  # Ensure log directory exists
-
-# Default log files
-LOG_FILE = LOG_DIR / "info.log"
-ERROR_LOG_FILE = LOG_DIR / "errors.log"
-
-LOG_FILE.touch()
-ERROR_LOG_FILE.touch()
-
 
 def configure_logging(
     level: str | None = None,
-    log_file: Path = LOG_FILE,
-    error_log_file: Path = ERROR_LOG_FILE,
+    log_dir: Path | None = None,
     rotation: str = "10 MB",
     retention: str = "30 days",
     serialize: bool = False,
@@ -59,18 +43,21 @@ def configure_logging(
 
     Args:
         level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-        log_file: Path to the main log file
-        error_log_file: Path to the error log file
+        log_dir: Directory to store log files
         rotation: Log rotation configuration (e.g., "10 MB", "1 week")
         retention: Log retention period (e.g., "30 days")
         serialize: Whether to serialize log records as JSON
         **kwargs: Additional arguments to pass to logger.add()
     """
-    # Ensure log directory exists
-    if log_file:
+    log_file: Path | None = None
+    error_log_file: Path | None = None
+    if log_dir:
+        log_file = log_dir / "rdchiral_plus.log"
+        error_log_file = log_dir / "rdchiral_plus.log"
+
         log_file.parent.mkdir(parents=True, exist_ok=True)
         log_file.touch()
-    if error_log_file:
+
         error_log_file.parent.mkdir(parents=True, exist_ok=True)
         error_log_file.touch()
 
@@ -79,8 +66,12 @@ def configure_logging(
         env = os.getenv("loguru_level", "default").lower()
         level = LOG_LEVELS.get(env, LOG_LEVELS["default"])
 
+    enable_library_logging()
+
     # Configure exception hook for uncaught exceptions
-    def handle_exception(exc_type, exc_value, exc_traceback):
+    def _handle_exception(
+        exc_type: type[BaseException], exc_value: BaseException, exc_traceback: Any
+    ) -> None:
         if issubclass(exc_type, KeyboardInterrupt):
             sys.__excepthook__(exc_type, exc_value, exc_traceback)
             return
@@ -89,24 +80,21 @@ def configure_logging(
             "Uncaught exception", exc_info=(exc_type, exc_value, exc_traceback)
         )
 
-    sys.excepthook = handle_exception
+    sys.excepthook = _handle_exception
 
-    # Remove default handler
     logger.remove()
 
-    # Add console handler with enhanced error formatting
     logger.add(
         sys.stderr,
         level=level,
         format=DEFAULT_FORMAT,
         colorize=True,
         backtrace=True,
-        diagnose=True,  # Enable variable values in traceback
-        enqueue=True,  # Make logging thread-safe
-        catch=True,  # Catch and log errors in logging system itself
+        diagnose=True,
+        enqueue=False,
+        catch=True,
     )
 
-    # Add file handler for all logs
     if log_file:
         logger.add(
             str(log_file),
@@ -114,22 +102,21 @@ def configure_logging(
             retention=retention,
             level=level,
             format=DEFAULT_FORMAT,
-            enqueue=True,
+            enqueue=False,
             backtrace=True,
             diagnose=True,
             catch=True,
             **kwargs,
         )
 
-    # Add file handler for error logs only with enhanced formatting
     if error_log_file:
         logger.add(
             str(error_log_file),
             rotation=rotation,
             retention=retention,
             level="WARNING",
-            format=ERROR_FORMAT,  # Use the more detailed format for errors
-            enqueue=True,
+            format=ERROR_FORMAT,
+            enqueue=False,
             backtrace=True,
             diagnose=True,
             catch=True,
@@ -143,12 +130,27 @@ def configure_logging(
             level=level,
             format=DEFAULT_FORMAT,
             serialize=True,
-            enqueue=True,
+            enqueue=False,
             backtrace=True,
             diagnose=True,
             **kwargs,
         )
 
 
-# Export logger for easy access
-__all__ = ["logger", "configure_logging"]
+def disable_library_logging() -> None:
+    logger.disable("rdchiral_plus")
+
+
+def enable_library_logging() -> None:
+    logger.enable("rdchiral_plus")
+
+
+disable_library_logging()
+
+
+__all__ = [
+    "logger",
+    "configure_logging",
+    "disable_library_logging",
+    "enable_library_logging",
+]
