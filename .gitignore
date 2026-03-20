@@ -8,8 +8,9 @@
 !.github/workflows/docs.yml
 !.gitignore
 !.gitattributes
-!speed_benchmark_script.py
-!run_speed_benchmark_envs.py
+!scripts/
+!scripts/speed_benchmark_script.py
+!scripts/run_speed_benchmark_envs.py
 !LICENSE
 !README.md
 !mkdocs.yml

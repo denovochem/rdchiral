@@ -1,27 +1,38 @@
+import argparse
 import importlib.util
 import sys
 import time
 from pathlib import Path
 from typing import Any, Tuple
 
+_parser = argparse.ArgumentParser()
+_parser.add_argument(
+    "--cpp",
+    action="store_true",
+    help="C++ extension mode: skip import checks and rdkit baseline",
+)
+_args = _parser.parse_args()
+CPP_MODE = _args.cpp
+
 from rdchiral.initialization import rdchiralReactants, rdchiralReaction
 from rdchiral.main import rdchiralRun
 
-print("=== Import origin checks ===")
-print("script:", __file__)
-print("sys.path[0]:", sys.path[0])
+if not CPP_MODE:
+    print("=== Import origin checks ===")
+    print("script:", __file__)
+    print("sys.path[0]:", sys.path[0])
 
-import rdchiral
-import rdchiral.initialization
-import rdchiral.main
+    import rdchiral
+    import rdchiral.initialization
+    import rdchiral.main
 
-print("rdchiral:", rdchiral.__file__)
-print("rdchiral.main:", rdchiral.main.__file__)
-print("rdchiral.initialization:", rdchiral.initialization.__file__)
+    print("rdchiral:", rdchiral.__file__)
+    print("rdchiral.main:", rdchiral.main.__file__)
+    print("rdchiral.initialization:", rdchiral.initialization.__file__)
 
-spec = importlib.util.find_spec("rdchiral.main")
-print("find_spec('rdchiral.main').origin:", spec.origin if spec else None)
-print("============================")
+    spec = importlib.util.find_spec("rdchiral.main")
+    print("find_spec('rdchiral.main').origin:", spec.origin if spec else None)
+    print("============================")
 
 TEMPLATES_PATH = Path(
     "/home/csnbritt/projects/denovochem_projects/rdchiral_mypyc/most_common_templates.txt"
@@ -79,42 +90,43 @@ print(
 )
 
 # Raw RDKit baseline: time only RunReactants on the achiral reactants
-rdkit_total_runs = 0
-rdkit_total_outcomes = 0
-rdkit_fail = 0
+if not CPP_MODE:
+    rdkit_total_runs = 0
+    rdkit_total_outcomes = 0
+    rdkit_fail = 0
 
-rdkit_t_start = time.perf_counter()
+    rdkit_t_start = time.perf_counter()
 
-for i, rxn in enumerate(rxn_list, start=1):
-    for reactants in reactants_list:
-        try:
-            outcomes: Tuple[Any, ...] = rxn.rxn.RunReactants(
-                (reactants.reactants_achiral,)
+    for i, rxn in enumerate(rxn_list, start=1):
+        for reactants in reactants_list:
+            try:
+                outcomes: Tuple[Any, ...] = rxn.rxn.RunReactants(
+                    (reactants.reactants_achiral,)
+                )
+                rdkit_total_outcomes += len(outcomes)
+            except Exception:
+                rdkit_fail += 1
+            rdkit_total_runs += 1
+
+        if PRINT_EVERY and (i % PRINT_EVERY == 0):
+            elapsed = time.perf_counter() - rdkit_t_start
+            rate = rdkit_total_runs / elapsed if elapsed > 0 else float("inf")
+            print(
+                f"[rdkit {i}/{len(rxn_list)}] elapsed={elapsed:.2f}s runs={rdkit_total_runs:,} ({rate:,.1f} runs/s)"
             )
-            rdkit_total_outcomes += len(outcomes)
-        except Exception:
-            rdkit_fail += 1
-        rdkit_total_runs += 1
 
-    if PRINT_EVERY and (i % PRINT_EVERY == 0):
-        elapsed = time.perf_counter() - rdkit_t_start
-        rate = rdkit_total_runs / elapsed if elapsed > 0 else float("inf")
-        print(
-            f"[rdkit {i}/{len(rxn_list)}] elapsed={elapsed:.2f}s runs={rdkit_total_runs:,} ({rate:,.1f} runs/s)"
-        )
+    rdkit_t_end = time.perf_counter()
+    rdkit_elapsed = rdkit_t_end - rdkit_t_start
+    rdkit_runs_per_sec = (
+        rdkit_total_runs / rdkit_elapsed if rdkit_elapsed > 0 else float("inf")
+    )
 
-rdkit_t_end = time.perf_counter()
-rdkit_elapsed = rdkit_t_end - rdkit_t_start
-rdkit_runs_per_sec = (
-    rdkit_total_runs / rdkit_elapsed if rdkit_elapsed > 0 else float("inf")
-)
-
-print("\n=== RDKit RunReactants Results ===")
-print(f"elapsed_s: {rdkit_elapsed:.3f}")
-print(f"total_runs: {rdkit_total_runs:,}")
-print(f"runs_per_sec: {rdkit_runs_per_sec:,.2f}")
-print(f"total_outcomes: {rdkit_total_outcomes:,}")
-print(f"fail: {rdkit_fail:,}")
+    print("\n=== RDKit RunReactants Results ===")
+    print(f"elapsed_s: {rdkit_elapsed:.3f}")
+    print(f"total_runs: {rdkit_total_runs:,}")
+    print(f"runs_per_sec: {rdkit_runs_per_sec:,.2f}")
+    print(f"total_outcomes: {rdkit_total_outcomes:,}")
+    print(f"fail: {rdkit_fail:,}")
 
 # Main timing loop: pre-initialize each template once, then run on all reactants
 total_runs = 0

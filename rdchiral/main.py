@@ -114,7 +114,7 @@ def rdchiralRun(
     keep_mapnums: bool = False,
     combine_enantiomers: bool = True,
     return_mapped: bool = False,
-) -> List[str] | Tuple[List[str], Dict[str, Tuple[str, Tuple[int, ...]]]]:
+) -> Any:
     """Run rdchiral reaction
 
     NOTE: there is a fair amount of initialization (assigning stereochem), most
@@ -138,7 +138,9 @@ def rdchiralRun(
 
     ###############################################################################
     # Run naive RDKit on ACHIRAL version of molecules
-    outcomes: Tuple[Any, ...] = rxn.rxn.RunReactants((reactants.reactants_achiral,))
+    outcomes: Tuple[Tuple[Chem.Mol, ...], ...] = rxn.rxn.RunReactants(
+        (reactants.reactants_achiral,)
+    )
     if not outcomes:
         if return_mapped:
             return [], {}
@@ -148,18 +150,18 @@ def rdchiralRun(
     # Deduplicate outer tuple of outcomes from RDKit. The raw RunReactants output can
     # contain duplicate product tuples.
     def _outcome_key(outcome: Any) -> Tuple[str, ...]:
-        # An outcome is a tuple of product mols; make the key order-independent.
-        return tuple(sorted(Chem.MolToSmiles(m) for m in outcome))
+        return tuple(sorted(Chem.MolToSmiles(m, canonical=True) for m in outcome))
 
-    seen_outcomes = set()
-    deduped_outcomes = []
-    for outcome in outcomes:
-        key = _outcome_key(outcome)
-        if key in seen_outcomes:
-            continue
-        seen_outcomes.add(key)
-        deduped_outcomes.append(outcome)
-    outcomes = tuple(deduped_outcomes)
+    if len(outcomes) > 1:
+        seen_outcomes = set()
+        deduped_outcomes = []
+        for outcome in outcomes:
+            key = _outcome_key(outcome)
+            if key in seen_outcomes:
+                continue
+            seen_outcomes.add(key)
+            deduped_outcomes.append(outcome)
+        outcomes = tuple(deduped_outcomes)
 
     # If both reactants and template are achiral, we can return the outcomes directly
     # TODO: handle intramolecular reactions, return mapping
@@ -216,7 +218,7 @@ def rdchiralRun(
 
 
 def handle_outcomes(
-    outcome: List[Chem.Mol],
+    outcome: Tuple[Chem.Mol, ...],
     reactants: rdchiralReactants,
     rxn: rdchiralReaction,
     keep_mapnums: bool,
@@ -234,7 +236,9 @@ def handle_outcomes(
     # TODO: cannot change atom map numbers in atoms_rt permanently?
     atoms_pt_map = rxn.atoms_pt_map
 
-    atoms_rt = assign_outcome_atom_mapnums(outcome, reactants, atoms_rt_map)
+    outcome, atoms_rt, atoms_rt_map = assign_outcome_atom_mapnums(
+        outcome, reactants, atoms_rt_map
+    )
 
     if validate_chiral_match(atoms_rt, atoms_r, reactants, rxn):
         return None, None
@@ -246,9 +250,9 @@ def handle_outcomes(
     else:
         merged_outcome = outcome[0]
 
-    atoms_pt, atoms_p = assign_pt_mapnums(merged_outcome, atoms_pt_map)
+    atoms_pt, atoms_p, atoms_pt_map = assign_pt_mapnums(merged_outcome, atoms_pt_map)
 
-    merged_outcome, bonds_were_added = check_missing_bonds(
+    merged_outcome, atoms_p, bonds_were_added = check_missing_bonds(
         merged_outcome, reactants, template_r, atoms_rt, atoms_p
     )
 
@@ -258,9 +262,10 @@ def handle_outcomes(
     # to update the property cache, since all that is left is fixing atom/bond
     # stereochemistry.
     if outcomes_were_merged or bonds_were_added:
-        merged_outcome = sanitize_mol(merged_outcome)
-        if merged_outcome is None:
+        sanitized_outcome = sanitize_mol(merged_outcome)
+        if sanitized_outcome is None:
             return None, None
+        merged_outcome = sanitized_outcome
 
     tetra_copied_from_reactants: List[Chem.Atom] = []
     if reactants.reactants_has_tetra_stereo or rxn.template_has_tetra_stereo:
@@ -298,10 +303,10 @@ def handle_outcomes(
 
 
 def assign_outcome_atom_mapnums(
-    outcome: List[Chem.Mol],
+    outcome: Tuple[Chem.Mol, ...],
     reactants: rdchiralReactants,
     atoms_rt_map: Dict[int, Chem.Atom],
-) -> Dict[int, Chem.Atom]:
+) -> Tuple[Tuple[Chem.Mol, ...], Dict[int, Chem.Atom], Dict[int, Chem.Atom]]:
     ###############################################################################
     # Look for new atoms in products that were not in
     # reactants (e.g., LGs for a retro reaction)
@@ -329,12 +334,12 @@ def assign_outcome_atom_mapnums(
                 rt_atom.SetAtomMapNum(mapnum)
                 atoms_rt[mapnum] = rt_atom
 
-    return atoms_rt
+    return outcome, atoms_rt, atoms_rt_map
 
 
 def assign_pt_mapnums(
     outcome: Chem.Mol, atoms_pt_map: Dict[int, Chem.Atom]
-) -> Tuple[Dict[int, Chem.Atom], Dict[int, Chem.Atom]]:
+) -> Tuple[Dict[int, Chem.Atom], Dict[int, Chem.Atom], Dict[int, Chem.Atom]]:
     ###############################################################################
 
     ###############################################################################
@@ -351,7 +356,7 @@ def assign_pt_mapnums(
             pt_atom.SetAtomMapNum(mapnum)
             atoms_pt[mapnum] = pt_atom
 
-    return atoms_pt, atoms_p
+    return atoms_pt, atoms_p, atoms_pt_map
 
 
 def validate_chiral_match(
@@ -364,13 +369,14 @@ def validate_chiral_match(
     # note: this is a little weird because atom_chirality_matches takes three values,
     #       -1 (both tetra but opposite), 0 (not a match), and +1 (both tetra and match)
     #       and we only want to continue if they all equal -1 or all equal +1
-    prev = None
+    prev: int | None = None
     skip_outcome = False
-    for match in (atom_chirality_matches(atoms_rt[i], atoms_r[i]) for i in atoms_rt):
+    for i in atoms_rt:
+        match: int = atom_chirality_matches(atoms_rt[i], atoms_r[i])
         if match == 0:
             skip_outcome = True
             break
-        elif match == 2:  # ambiguous case
+        elif match == 2:
             continue
         elif prev is None:
             prev = match
@@ -411,7 +417,7 @@ def validate_chiral_match(
     return False
 
 
-def merge_outcomes_intramolecular(outcome: List[Chem.Mol]) -> Chem.Mol:
+def merge_outcomes_intramolecular(outcome: Tuple[Chem.Mol, ...]) -> Chem.Mol:
     ###############################################################################
 
     ###############################################################################
@@ -451,14 +457,13 @@ def merge_outcomes_intramolecular(outcome: List[Chem.Mol]) -> Chem.Mol:
                     merged_mol.GetBondBetweenAtoms(
                         merged_map_to_id[bi], merged_map_to_id[bj]
                     ).SetBondDir(b.GetBondDir())
-        outcome = merged_mol.GetMol()
+        merged_outcome = merged_mol.GetMol()
     else:
-        new_outcome = outcome[0]
+        merged_outcome = outcome[0]
         for j in range(1, len(outcome)):
-            new_outcome = rdmolops.CombineMols(new_outcome, outcome[j])
-        outcome = new_outcome
+            merged_outcome = rdmolops.CombineMols(merged_outcome, outcome[j])
 
-    return outcome
+    return merged_outcome
 
 
 def check_missing_bonds(
@@ -467,7 +472,7 @@ def check_missing_bonds(
     template_r: Chem.Mol,
     atoms_rt: Dict[int, Chem.Atom],
     atoms_p: Dict[int, Chem.Atom],
-) -> Tuple[Chem.Mol, bool]:
+) -> Tuple[Chem.Mol, Dict[int, Chem.Atom], bool]:
     ###############################################################################
 
     ###############################################################################
@@ -512,7 +517,7 @@ def check_missing_bonds(
             a.GetAtomMapNum(): a for a in outcome.GetAtoms() if a.GetAtomMapNum()
         }
 
-    return outcome, bonds_were_added
+    return outcome, atoms_p, bonds_were_added
 
 
 def fix_tetra_stereo(
@@ -583,6 +588,7 @@ def fix_tetra_stereo(
 
                 else:
                     copy_chirality(atoms_pt[atom_map_num], a)
+
     return outcome, tetra_copied_from_reactants
 
 
@@ -604,7 +610,7 @@ def validate_tetra_not_destroyed(
     return False
 
 
-def sanitize_mol(merged_outcome):
+def sanitize_mol(merged_outcome: Chem.Mol) -> Chem.Mol | None:
     try:
         Chem.SanitizeMol(merged_outcome)
         merged_outcome.UpdatePropertyCache()

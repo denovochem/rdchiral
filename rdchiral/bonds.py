@@ -322,7 +322,13 @@ def get_atoms_across_double_bonds(
         is_implicit = False
         bab = None
         bbb = None
-        for bab in (z for z in ba.GetBonds() if z.GetBondType() != BondType.DOUBLE):
+
+        def _bab_generator():
+            for z in ba.GetBonds():
+                if z.GetBondType() != BondType.DOUBLE:
+                    yield z
+
+        for bab in _bab_generator():
             if bab.GetBondDir() != BondDir.NONE:
                 front_mapnums = (
                     bab.GetBeginAtom().GetAtomMapNum(),
@@ -330,7 +336,13 @@ def get_atoms_across_double_bonds(
                 )
                 front_dir = bab.GetBondDir()
                 break
-        for bbb in (z for z in bb.GetBonds() if z.GetBondType() != BondType.DOUBLE):
+
+        def _bbb_generator():
+            for z in bb.GetBonds():
+                if z.GetBondType() != BondType.DOUBLE:
+                    yield z
+
+        for bbb in _bbb_generator():
             if bbb.GetBondDir() != BondDir.NONE:
                 back_mapnums = (
                     bbb.GetBeginAtom().GetAtomMapNum(),
