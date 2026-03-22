@@ -1,6 +1,6 @@
 from __future__ import print_function
 
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import rdkit.Chem as Chem
 from rdkit.Chem import rdmolops
@@ -90,7 +90,7 @@ def rdchiralRunText(
     keep_mapnums: bool = False,
     combine_enantiomers: bool = True,
     return_mapped: bool = False,
-) -> List[str] | Tuple[List[str], Dict[str, Tuple[str, Tuple[int, ...]]]]:
+) -> Union[List[str], Tuple[List[str], Dict[str, Tuple[str, Tuple[int, ...]]]]]:
     """
     Run a reaction by constructing `rdchiralReaction` and `rdchiralReactants` from text inputs.
 
@@ -105,7 +105,7 @@ def rdchiralRunText(
         return_mapped (bool): If True, also return per-outcome atom-mapped information.
 
     Returns:
-        List[str] | Tuple[List[str], Dict[str, Tuple[str, Tuple[int, ...]]]]:
+        Union[List[str], Tuple[List[str], Dict[str, Tuple[str, Tuple[int, ...]]]]]:
             - If `return_mapped` is False: A list of product SMILES strings.
             - If `return_mapped` is True: A tuple of `(outcomes, mapped_outcomes)` as
               returned by `rdchiralRun`.
@@ -144,7 +144,7 @@ def rdchiralRun(
         return_mapped (bool): If True, also return per-outcome atom-mapped information.
 
     Returns:
-        List[str] | Tuple[List[str], Dict[str, Tuple[str, Tuple[int, ...]]]]:
+        Any:
             - If `return_mapped` is False: A list of product SMILES strings.
             - If `return_mapped` is True: A tuple of `(outcomes, mapped_outcomes)`.
               `outcomes` is the list of product SMILES strings. `mapped_outcomes` maps
@@ -307,7 +307,7 @@ def handle_outcomes(
     rxn: rdchiralReaction,
     keep_mapnums: bool,
     return_mapped: bool,
-) -> Tuple[str, Tuple[Any, ...]] | Tuple[None, None]:
+) -> Union[Tuple[str, Tuple[Any, ...]], Tuple[None, None]]:
     """
     Post-process a single raw RDKit reaction outcome into a final product SMILES.
 
@@ -330,7 +330,7 @@ def handle_outcomes(
             and products.
 
     Returns:
-        Tuple[str, Tuple[Any, ...]] | Tuple[None, None]:
+        Union[Tuple[str, Tuple[Any, ...]], Tuple[None, None]]:
             - On success: A tuple of `(smiles_new, (mapped_outcome, atoms_changed))`.
               `smiles_new` is a canonical isomeric SMILES for the final product.
               If `return_mapped` is True, `mapped_outcome` is the mapped SMILES for the
@@ -539,7 +539,7 @@ def validate_chiral_match(
         applying `BondDirOpposite` to both directions (trans equivalence), or if the template specifies
         `(BondDir.NONE, BondDir.NONE)` and the reactant stereochemistry was implicit.
     """
-    prev: int | None = None
+    prev: Optional[int] = None
     skip_outcome = False
     for i in atoms_rt:
         match: int = atom_chirality_matches(atoms_rt[i], atoms_r[i])
@@ -851,7 +851,7 @@ def validate_tetra_not_destroyed(
     return False
 
 
-def sanitize_mol(merged_outcome: Chem.Mol) -> Chem.Mol | None:
+def sanitize_mol(merged_outcome: Chem.Mol) -> Optional[Chem.Mol]:
     """
     Sanitize a merged outcome molecule using RDKit and return `None` on sanitization failure.
 
@@ -859,7 +859,7 @@ def sanitize_mol(merged_outcome: Chem.Mol) -> Chem.Mol | None:
         merged_outcome (Chem.Mol): The molecule to sanitize in-place.
 
     Returns:
-        Chem.Mol | None: The same `merged_outcome` instance after successful sanitization and
+        Optional[Chem.Mol]: The same `merged_outcome` instance after successful sanitization and
             property-cache update, or `None` if RDKit sanitization raises a `ValueError`.
     """
     try:

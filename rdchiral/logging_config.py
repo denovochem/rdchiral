@@ -1,7 +1,7 @@
 import os
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from loguru import logger
 
@@ -31,8 +31,8 @@ LOG_LEVELS = {
 
 
 def configure_logging(
-    level: str | None = None,
-    log_dir: Path | None = None,
+    level: Optional[str] = None,
+    log_dir: Optional[Path] = None,
     rotation: str = "10 MB",
     retention: str = "30 days",
     serialize: bool = False,
@@ -49,8 +49,8 @@ def configure_logging(
         serialize: Whether to serialize log records as JSON
         **kwargs: Additional arguments to pass to logger.add()
     """
-    log_file: Path | None = None
-    error_log_file: Path | None = None
+    log_file: Optional[Path] = None
+    error_log_file: Optional[Path] = None
     if log_dir:
         log_file = log_dir / "rdchiral_plus.log"
         error_log_file = log_dir / "rdchiral_plus.log"
