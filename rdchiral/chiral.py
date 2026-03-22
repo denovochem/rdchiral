@@ -140,11 +140,4 @@ def atom_chirality_matches(a_tmp: Chem.Atom, a_mol: Chem.Atom) -> int:
             return 2  # ambiguous case, just return for now
 
     except IndexError as e:
-        print(a_tmp.GetPropsAsDict())
-        print(a_mol.GetPropsAsDict())
-        print(a_tmp.GetChiralTag())
-        print(a_mol.GetChiralTag())
-        print(str(e))
-        print(str(mapnums_tmp))
-        print(str(mapnums_mol))
-        raise KeyError("Pop from empty set - this should not happen!")
+        raise KeyError(f"Pop from empty set - this should not happen! {e}")

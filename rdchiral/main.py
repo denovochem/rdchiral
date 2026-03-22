@@ -160,7 +160,7 @@ def rdchiralRun(
     """
     rxn.reset()
 
-    # Run naive RDKit on ACHIRAL version of molecules
+    # Run naive RDKit on achiral version of molecules
     outcomes: Tuple[Tuple[Chem.Mol, ...], ...] = rxn.rxn.RunReactants(
         (reactants.reactants_achiral,)
     )
@@ -170,21 +170,7 @@ def rdchiralRun(
         else:
             return []
 
-    # Deduplicate outer tuple of outcomes from RDKit. The raw RunReactants output can
-    # contain duplicate product tuples.
-    def _outcome_key(outcome: Any) -> Tuple[str, ...]:
-        return tuple(sorted(Chem.MolToSmiles(m, canonical=True) for m in outcome))
-
-    if len(outcomes) > 1:
-        seen_outcomes = set()
-        deduped_outcomes = []
-        for outcome in outcomes:
-            key = _outcome_key(outcome)
-            if key in seen_outcomes:
-                continue
-            seen_outcomes.add(key)
-            deduped_outcomes.append(outcome)
-        outcomes = tuple(deduped_outcomes)
+    outcomes = deduplicate_outcomes(outcomes, reactants, rxn)
 
     # If both reactants and template are achiral, we can return the outcomes directly
     # TODO: handle intramolecular reactions, return mapping
@@ -232,6 +218,89 @@ def rdchiralRun(
         return list(final_outcomes)
 
 
+def deduplicate_outcomes_with_smiles(
+    outcomes: Tuple[Tuple[Chem.Mol, ...], ...],
+) -> Tuple[Tuple[Chem.Mol, ...], ...]:
+    """
+    Deduplicate RDKit reaction outcomes using canonical product SMILES.
+
+    Args:
+        outcomes (Tuple[Tuple[Chem.Mol, ...], ...]): Raw output from
+            `ChemicalReaction.RunReactants`, represented as a tuple of outcomes where
+            each outcome is a tuple of product molecules.
+
+    Returns:
+        Tuple[Tuple[Chem.Mol, ...], ...]: The input `outcomes` with duplicate outcome
+        tuples removed. Two outcomes are considered duplicates if the sorted tuple of
+        canonical SMILES for their product molecules is identical.
+    """
+
+    def _outcome_key(outcome: Any) -> Tuple[str, ...]:
+        return tuple(sorted(Chem.MolToSmiles(m, canonical=True) for m in outcome))
+
+    if len(outcomes) > 1:
+        seen_outcomes = set()
+        deduped_outcomes = []
+        for outcome in outcomes:
+            key = _outcome_key(outcome)
+            if key in seen_outcomes:
+                continue
+            seen_outcomes.add(key)
+            deduped_outcomes.append(outcome)
+        outcomes = tuple(deduped_outcomes)
+    return outcomes
+
+
+def deduplicate_outcomes(
+    outcomes: Tuple[Tuple[Chem.Mol, ...], ...],
+    reactants: rdchiralReactants,
+    rxn: rdchiralReaction,
+) -> Tuple[Tuple[Chem.Mol, ...], ...]:
+    """
+    Deduplicate RDKit reaction outcomes by identical reactant substructure matches.
+
+    This is an alternative to `deduplicate_outcomes_with_smiles` that avoids SMILES
+    generation. Instead, it computes all substructure matches of the reaction's
+    reactant template against the (achiral) reactants with `uniquify=False` and
+    removes outcomes that correspond to repeated matches.
+
+    Args:
+        outcomes (Tuple[Tuple[Chem.Mol, ...], ...]): Raw output from
+            `ChemicalReaction.RunReactants`, represented as a tuple of outcomes where
+            each outcome is a tuple of product molecules.
+        reactants (rdchiralReactants): Initialized reactants container. The
+            `reactants_achiral` molecule is used for substructure matching.
+        rxn (rdchiralReaction): Initialized reaction container. The `template_r`
+            reactant template is matched against `reactants.reactants_achiral`.
+
+    Returns:
+        Tuple[Tuple[Chem.Mol, ...], ...]: The input `outcomes` with duplicates removed
+        such that at most one outcome is kept for each unique reactant substructure
+        match.
+
+    Note:
+        This function assumes that the order of `outcomes` corresponds to the order
+        of `GetSubstructMatches(rxn.template_r, uniquify=False)`.
+    """
+    if len(outcomes) > 1:
+        substruct_matches = reactants.reactants_achiral.GetSubstructMatches(
+            rxn.template_r, uniquify=False
+        )
+        sorted_substruct_matches = tuple(
+            sorted(substruct_match for substruct_match in substruct_matches)
+        )
+
+        seen_outcomes = set()
+        deduped_outcomes = []
+        for outcome, sorted_substruct_match in zip(outcomes, sorted_substruct_matches):
+            if sorted_substruct_match in seen_outcomes:
+                continue
+            seen_outcomes.add(sorted_substruct_match)
+            deduped_outcomes.append(outcome)
+        outcomes = tuple(deduped_outcomes)
+    return outcomes
+
+
 def handle_outcomes(
     outcome: Tuple[Chem.Mol, ...],
     reactants: rdchiralReactants,
@@ -277,22 +346,15 @@ def handle_outcomes(
         numbers, bond connectivity, and stereochemistry) as part of the repair and
         standardization process.
     """
-    # We need to keep track of what map numbers correspond to which atoms
-    # note: all reactant atoms must be mapped, so this is safe
-    atoms_r = reactants.atoms_r
-
-    # Copy reaction template so we can play around with map numbers
-    template_r = rxn.template_r
-
     # Get molAtomMapNum->atom dictionary for template reactants and products
     atoms_rt_map = rxn.atoms_rt_map
-    # TODO: cannot change atom map numbers in atoms_rt permanently?
-    atoms_pt_map = rxn.atoms_pt_map
-
     outcome, atoms_rt, atoms_rt_map = assign_outcome_atom_mapnums(
         outcome, reactants, atoms_rt_map
     )
 
+    # We need to keep track of what map numbers correspond to which atoms
+    # note: all reactant atoms must be mapped, so this is safe
+    atoms_r = reactants.atoms_r
     if validate_chiral_match(atoms_rt, atoms_r, reactants, rxn):
         return None, None
 
@@ -303,8 +365,12 @@ def handle_outcomes(
     else:
         merged_outcome = outcome[0]
 
+    # TODO: cannot change atom map numbers in atoms_rt permanently?
+    atoms_pt_map = rxn.atoms_pt_map
     atoms_pt, atoms_p, atoms_pt_map = assign_pt_mapnums(merged_outcome, atoms_pt_map)
 
+    # Copy reaction template so we can play around with map numbers
+    template_r = rxn.template_r
     merged_outcome, atoms_p, bonds_were_added = check_missing_bonds(
         merged_outcome, reactants, template_r, atoms_rt, atoms_p
     )
@@ -387,8 +453,8 @@ def assign_outcome_atom_mapnums(
         for a in m.GetAtoms():
             # Assign map number to outcome based on react_atom_idx
             if a.HasProp("react_atom_idx"):
-                a.SetAtomMapNum(idx_to_mapnum(a.GetIntProp("react_atom_idx")))
-                mapnum = a.GetAtomMapNum()
+                mapnum = idx_to_mapnum(a.GetIntProp("react_atom_idx"))
+                a.SetAtomMapNum(mapnum)
             else:
                 mapnum = a.GetAtomMapNum()
             if not mapnum:
@@ -492,6 +558,9 @@ def validate_chiral_match(
 
     # Check bond chirality - iterate through reactant double bonds where
     # chirality is specified (or not). atoms defined by map number
+    atoms_rt_idx_to_map = rxn.atoms_rt_idx_to_map
+    required_rt_bond_defs = rxn.required_rt_bond_defs
+
     for atoms, dirs, is_implicit in reactants.atoms_across_double_bonds:
         if all(i in atoms_rt for i in atoms):
             # All atoms definining chirality were matched to the reactant template
@@ -499,15 +568,15 @@ def validate_chiral_match(
             # ...but /=/ should match \=\ since they are both trans...
             # Convert atoms_rt to original template's atom map numbers:
             matched_atom_map_nums: Tuple[int, int, int, int] = (
-                rxn.atoms_rt_idx_to_map[atoms_rt[atoms[0]].GetIdx()],
-                rxn.atoms_rt_idx_to_map[atoms_rt[atoms[1]].GetIdx()],
-                rxn.atoms_rt_idx_to_map[atoms_rt[atoms[2]].GetIdx()],
-                rxn.atoms_rt_idx_to_map[atoms_rt[atoms[3]].GetIdx()],
+                atoms_rt_idx_to_map[atoms_rt[atoms[0]].GetIdx()],
+                atoms_rt_idx_to_map[atoms_rt[atoms[1]].GetIdx()],
+                atoms_rt_idx_to_map[atoms_rt[atoms[2]].GetIdx()],
+                atoms_rt_idx_to_map[atoms_rt[atoms[3]].GetIdx()],
             )
 
-            if matched_atom_map_nums not in rxn.required_rt_bond_defs:
+            if matched_atom_map_nums not in required_rt_bond_defs:
                 continue  # this can happen in ring openings, for example
-            dirs_template = rxn.required_rt_bond_defs[matched_atom_map_nums]
+            dirs_template = required_rt_bond_defs[matched_atom_map_nums]
             if (
                 dirs != dirs_template
                 and (BondDirOpposite[dirs[0]], BondDirOpposite[dirs[1]])
@@ -537,17 +606,19 @@ def merge_outcomes_intramolecular(outcome: Tuple[Chem.Mol, ...]) -> Chem.Mol:
         copies bond type, stereo, and bond direction when adding missing bonds. Otherwise, it merges
         products using `rdmolops.CombineMols`.
     """
-    mapnums = [
-        a.GetAtomMapNum() for m in outcome for a in m.GetAtoms() if a.GetAtomMapNum()
-    ]
+    mapnums = []
+    merged_map_to_id = {}
+    for i, m in enumerate(outcome):
+        for a in m.GetAtoms():
+            mapnum = a.GetAtomMapNum()
+            if not mapnum:
+                continue
+            mapnums.append(mapnum)
+            if i == 0:
+                merged_map_to_id[mapnum] = a.GetIdx()
     if len(mapnums) != len(set(mapnums)):  # duplicate?
         # need to do a fancy merge
         merged_mol = Chem.RWMol(outcome[0])
-        merged_map_to_id = {
-            a.GetAtomMapNum(): a.GetIdx()
-            for a in outcome[0].GetAtoms()
-            if a.GetAtomMapNum()
-        }
         for j in range(1, len(outcome)):
             new_mol = outcome[j]
             for a in new_mol.GetAtoms():
@@ -705,6 +776,7 @@ def fix_tetra_stereo(
                 if a.GetChiralTag() != ChiralType.CHI_UNSPECIFIED:
                     tetra_copied_from_reactants.append(a)
 
+        ## TODO reorder this so that getchiraltag is called first? its cheaper?
         else:
             # Part of reactants and reaction core
 
@@ -832,6 +904,8 @@ def fix_double_bond_stereochemistry(
         re-perceived and conjugated systems are corrected using the initial bond
         directions captured at the start of the function.
     """
+    bond_dirs_by_map_num = reactants.bond_dirs_by_mapnum
+    required_bond_defs_coreatoms = rxn.required_bond_defs_coreatoms
     initial_bond_dirs = bond_dirs_by_mapnum(outcome)
     for b in outcome.GetBonds():
         if b.GetBondType() != BondType.DOUBLE:
@@ -854,7 +928,7 @@ def fix_double_bond_stereochemistry(
             if (
                 ba.GetIntProp("old_mapno"),
                 bb.GetIntProp("old_mapno"),
-            ) in rxn.required_bond_defs_coreatoms:
+            ) in required_bond_defs_coreatoms:
                 continue
 
         elif not ba.HasProp("react_atom_idx") and not bb.HasProp("react_atom_idx"):
@@ -868,9 +942,7 @@ def fix_double_bond_stereochemistry(
         # atom in the reaction, e.g., C/C=C(/CO)>>C/C=C(/C[Br])
 
         # Start with setting the BeginAtom
-        begin_atom_specified = restore_bond_stereo_to_sp2_atom(
-            ba, reactants.bond_dirs_by_mapnum
-        )
+        begin_atom_specified = restore_bond_stereo_to_sp2_atom(ba, bond_dirs_by_map_num)
 
         if not begin_atom_specified:
             # don't bother setting other side of bond, since we won't be able to
@@ -878,7 +950,7 @@ def fix_double_bond_stereochemistry(
             continue
 
         # Look at other side of the bond now, the EndAtom
-        _ = restore_bond_stereo_to_sp2_atom(bb, reactants.bond_dirs_by_mapnum)
+        _ = restore_bond_stereo_to_sp2_atom(bb, bond_dirs_by_map_num)
 
     # Need to check whether a conjugated system was changed.
     if initial_bond_dirs:
