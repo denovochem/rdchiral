@@ -7,7 +7,7 @@ All benchmarks are performed on a fresh reboot of a Latitude 5540 with an Intel 
 The same benchmark workload is executed in multiple environments:
 
 - **orig**: upstream `rdchiral` from GitHub
-- **purepy**: this repo, pure-Python (no mypyc)
+- **pure_python**: this repo, pure-Python (no mypyc)
 - **mypyc**: this repo, compiled with mypyc (`RDCHIRAL_USE_MYPYC=1`)
 - **cpp**: `rdchiral_cpp` from conda-forge
 
@@ -29,6 +29,34 @@ The benchmark runner builds isolated environments and executes the selected benc
 python scripts/run_speed_benchmark_envs.py --reinstall
 ```
 
+## Benchmark methodology
+
+### Runner behavior
+
+Benchmarks are orchestrated by `scripts/run_speed_benchmark_envs.py`.
+
+- Each environment is installed into an isolated env (uv venvs for `orig`/`pure_python`/`mypyc`, and a conda prefix env for `cpp`).
+- The benchmark script is copied to a temporary directory and executed from there to avoid importing in-tree sources.
+- The runner sets `RDCHIRAL_REPO_ROOT` so the benchmark script can find the repository data files.
+
+### Workload inputs and determinism
+
+The default benchmark script is `scripts/speed_benchmark_script.py`.
+
+- Templates are loaded from `uspto_top_1k_templates.txt`.
+- Reactant SMILES are loaded from `zinc250k.txt`.
+- Atom-mapped reactions are loaded from `scripts/uspto_50k_mapped_reactions.txt`.
+- The script shuffles inputs deterministically with `RANDOM_SEED = 42`.
+
+### What is measured
+
+The script reports timings for:
+
+- Template initialization (building `rdchiralReaction` objects).
+- Reactant initialization (building `rdchiralReactants` objects).
+- Template application (`rdchiralRunText` and `rdchiralRun`).
+- Template extraction (`extract_from_reaction`).
+
 ## Benchmark 1: 1,000,000 template applications
 
 This benchmark consists of applying 1000 templates to 1000 reactant SMILES for a total of 1,000,000 applications.
@@ -36,7 +64,7 @@ This benchmark consists of applying 1000 templates to 1000 reactant SMILES for a
 | env | reactants_init | reactants_init_ratio | templates_init | templates_init_ratio | application | application_ratio |
 | --- | --- | --- | --- | --- | --- | --- |
 | orig | 0.560 (0.050) | 1.000 | 0.608 (0.035) | 1.000 | 118.250 (2.837) | 1.000 |
-| purepy | 0.551 (0.077) | 1.016 | 0.739 (0.087) | 0.822 | 39.650 (0.169) | 2.982 |
+| pure_python | 0.551 (0.077) | 1.016 | 0.739 (0.087) | 0.822 | 39.650 (0.169) | 2.982 |
 | mypyc | 0.589 (0.025) | 0.950 | 0.733 (0.014) | 0.829 | 38.847 (1.501) | 3.044 |
 | cpp | 0.163 (0.033) | 3.429 | 0.064 (0.010) | 9.500 | 44.793 (1.593) | 2.640 |
 
