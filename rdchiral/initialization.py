@@ -153,28 +153,28 @@ class rdchiralReaction(object):
     def template_r_orig(self) -> Chem.Mol:
         if self._template_r_orig is None:
             self._ensure_templates()
-            assert self._template_r_orig is not None
+        assert self._template_r_orig is not None
         return self._template_r_orig
 
     @property
     def template_p_orig(self) -> Chem.Mol:
         if self._template_p_orig is None:
             self._ensure_templates()
-            assert self._template_p_orig is not None
+        assert self._template_p_orig is not None
         return self._template_p_orig
 
     @property
     def template_r(self) -> Chem.Mol:
         if self._template_r is None:
             self._ensure_templates()
-            assert self._template_r is not None
+        assert self._template_r is not None
         return self._template_r
 
     @property
     def template_p(self) -> Chem.Mol:
         if self._template_p is None:
             self._ensure_templates()
-            assert self._template_p is not None
+        assert self._template_p is not None
         return self._template_p
 
     @property
