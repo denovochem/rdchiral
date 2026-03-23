@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 from rdchiral.initialization import rdchiralReactants, rdchiralReaction
-from rdchiral.main import rdchiralRun, rdchiralRunText
+from rdchiral.main import rdchiralRun
 
 _parser = argparse.ArgumentParser()
 _parser.add_argument(
