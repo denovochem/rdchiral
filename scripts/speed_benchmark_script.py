@@ -5,9 +5,162 @@ import random
 import sys
 import time
 from pathlib import Path
+from typing import List, Tuple
 
-from rdchiral.initialization import rdchiralReactants, rdchiralReaction
-from rdchiral.main import rdchiralRun
+repo_root = Path(
+    os.environ.get("RDCHIRAL_REPO_ROOT", Path(__file__).resolve().parent.parent)
+)
+sys.path.insert(0, str(repo_root))
+
+from rdchiral.initialization import rdchiralReactants, rdchiralReaction  # noqa: E402
+from rdchiral.main import rdchiralRun, rdchiralRunText  # noqa: E402
+from rdchiral.template_extractor import extract_from_reaction  # noqa: E402
+
+RANDOM_SEED = 42
+MAX_TEMPLATES = None
+MAX_SMILES_INITIALIZATION_TEST = 100
+MAX_SMILES_PRE_INITIALIZED = 100
+MAX_SMILES_NOT_PRE_INITIALIZED = 10
+MAX_MAPPED_REACTIONS = 100
+
+TEMPLATES_PATH = repo_root / "uspto_top_1k_templates.txt"
+SMILES_PATH = repo_root / "zinc250k.txt"
+MAPPED_REACTIONS_PATH = repo_root / "uspto_50k_mapped_reactions.txt"
+SAVE_FILE_PATH = repo_root / "generated_csvs"
+SAVE_FILE_PATH.mkdir(parents=True, exist_ok=True)
+
+
+def load_lines(path: Path):
+    return [
+        ln.strip() for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()
+    ]
+
+
+def write_outcomes_file(
+    outcomes_path: Path, column_headers: List[str], data_to_write: List[str]
+) -> None:
+    with outcomes_path.open("w", encoding="utf-8") as outcomes_fh:
+        outcomes_fh.write("\t".join(column_headers) + "\n")
+        for data in data_to_write:
+            if not data:
+                outcomes_fh.write("\t".join([""] * len(column_headers)) + "\n")
+            else:
+                outcomes_fh.write("\t".join(data) + "\n")
+
+
+def initialize_templates(
+    templates: List[str], lazy_init_possible: bool = False, lazy_init: bool = False
+) -> Tuple[List[Tuple[rdchiralReaction, str]], int]:
+    rxn_list = []
+    template_init_fail = 0
+    for smarts in templates:
+        try:
+            if lazy_init_possible and lazy_init:
+                rxn_list.append((rdchiralReaction(smarts, lazy_init=True), smarts))
+            elif lazy_init_possible:
+                rxn_list.append((rdchiralReaction(smarts, lazy_init=False), smarts))
+            else:
+                rxn_list.append((rdchiralReaction(smarts), smarts))
+        except Exception:
+            template_init_fail += 1
+    return rxn_list, template_init_fail
+
+
+def initialize_reactants(
+    smiles_list: List[str], lazy_init_possible: bool = False, lazy_init: bool = False
+) -> Tuple[List[Tuple[rdchiralReactants, str]], int]:
+    reactants_list = []
+    reactants_init_fail = 0
+    for smi in smiles_list:
+        try:
+            if lazy_init_possible and lazy_init:
+                reactants_list.append((rdchiralReactants(smi, lazy_init=True), smi))
+            elif lazy_init_possible:
+                reactants_list.append((rdchiralReactants(smi, lazy_init=False), smi))
+            else:
+                reactants_list.append((rdchiralReactants(smi), smi))
+        except Exception:
+            reactants_init_fail += 1
+    return reactants_list, reactants_init_fail
+
+
+def shuffle_reactants_templates_order(
+    rxn_list: List[Tuple[rdchiralReaction, str]],
+    reactants_list: List[Tuple[rdchiralReactants, str]],
+) -> List[Tuple[Tuple[rdchiralReaction, rdchiralReactants], Tuple[str, str]]]:
+    randomized_order_list = []
+    for _, [rdchiral_rxn, rxn_smarts] in enumerate(rxn_list, start=1):
+        for rdchiral_reactants, reactant_smi in reactants_list:
+            randomized_order_list.append(
+                ((rdchiral_rxn, rdchiral_reactants), (rxn_smarts, reactant_smi))
+            )
+    random.Random(RANDOM_SEED).shuffle(randomized_order_list)
+    return randomized_order_list
+
+
+def run_rdchiralruntext(
+    randomized_order_list: List[
+        Tuple[Tuple[rdchiralReaction, rdchiralReactants], Tuple[str, str]]
+    ],
+):
+    outcomes = []
+    for _, [_, (reactant_smi, rxn_smarts)] in enumerate(randomized_order_list, start=1):
+        try:
+            outcome = rdchiralRunText(rxn_smarts, reactant_smi)
+            outcomes.append(outcome)
+        except Exception:
+            outcomes.append(None)
+    return outcomes
+
+
+def run_rdchiralrun(
+    randomized_order_list: List[
+        Tuple[Tuple[rdchiralReaction, rdchiralReactants], Tuple[str, str]]
+    ],
+):
+    outcomes = []
+    for _, [(rdchiral_reactants, rdchiral_rxn), (_, _)] in enumerate(
+        randomized_order_list, start=1
+    ):
+        try:
+            outcome = rdchiralRun(rdchiral_rxn, rdchiral_reactants)
+            outcomes.append(outcome)
+        except Exception:
+            outcomes.append(None)
+    return outcomes
+
+
+def extract(reaction: str):
+    split_smiles = reaction.split(">")
+    reactants = split_smiles[0]
+    spectators = split_smiles[1]
+    products = split_smiles[2]
+    reaction_id = 0
+    try:
+        return extract_from_reaction(
+            {
+                "reactants": reactants,
+                "products": products,
+                "spectators": spectators,
+                "_id": reaction_id,
+            }
+        )
+    except KeyboardInterrupt:
+        raise KeyboardInterrupt
+    except Exception:
+        return {"reaction_id": reaction_id}
+
+
+def run_rdchiralextract(mapped_reactions_list: List[str]):
+    outcomes = []
+    for reaction in mapped_reactions_list:
+        try:
+            outcome = extract(reaction)
+            outcomes.append(outcome)
+        except Exception:
+            outcomes.append(None)
+    return outcomes
+
 
 _parser = argparse.ArgumentParser()
 _parser.add_argument(
@@ -20,9 +173,21 @@ _parser.add_argument(
     default=None,
     help="Optional path to write per-(template,reactant) outcomes for cross-environment comparison (computed after timing)",
 )
+_parser.add_argument(
+    "--lazy-init-possible",
+    action="store_true",
+    help="Enable lazy initialization of templates and reactants",
+)
+_parser.add_argument(
+    "--save-file-prefix",
+    default=None,
+    help="Optional prefix for saved files",
+)
 _args = _parser.parse_args()
 CPP_MODE = _args.cpp
+LAZY_INIT_POSSIBLE = _args.lazy_init_possible
 OUTCOMES_FILE = _args.outcomes_file
+SAVE_FILE_PREFIX = _args.save_file_prefix
 
 
 if not CPP_MODE:
@@ -42,157 +207,147 @@ if not CPP_MODE:
     print("find_spec('rdchiral.main').origin:", spec.origin if spec else None)
     print("============================")
 
-# Get repository root from environment variable (set by run_speed_benchmark_envs.py)
-repo_root = Path(os.environ.get("RDCHIRAL_REPO_ROOT", Path(__file__).resolve().parent))
-
-TEMPLATES_PATH = repo_root / "uspto_top_1k_templates.txt"
-SMILES_PATH = repo_root / "zinc250k.txt"
-
-# Optional knobs
-MAX_TEMPLATES = None
-MAX_SMILES = 1000
-PRINT_EVERY = 25000
-
-
-def load_lines(path: Path):
-    return [
-        ln.strip() for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()
-    ]
-
 
 templates = load_lines(TEMPLATES_PATH)
+random.Random(RANDOM_SEED).shuffle(templates)
 smiles_list = load_lines(SMILES_PATH)
+random.Random(RANDOM_SEED).shuffle(smiles_list)
+mapped_reactions_list = load_lines(MAPPED_REACTIONS_PATH)
+random.Random(RANDOM_SEED).shuffle(mapped_reactions_list)
 
 if MAX_TEMPLATES is not None:
     templates = templates[:MAX_TEMPLATES]
-if MAX_SMILES is not None:
-    smiles_list = smiles_list[:MAX_SMILES]
+if MAX_SMILES_INITIALIZATION_TEST is not None:
+    smiles_list_initialization_test = smiles_list[:MAX_SMILES_INITIALIZATION_TEST]
+if MAX_SMILES_PRE_INITIALIZED is not None:
+    smiles_list_pre_initialized = smiles_list[:MAX_SMILES_PRE_INITIALIZED]
+if MAX_SMILES_NOT_PRE_INITIALIZED is not None:
+    smiles_list_not_pre_initialized = smiles_list[:MAX_SMILES_NOT_PRE_INITIALIZED]
+if MAX_MAPPED_REACTIONS is not None:
+    mapped_reactions_list = mapped_reactions_list[:MAX_MAPPED_REACTIONS]
 
-print(f"Loaded {len(templates)} templates, {len(smiles_list)} SMILES")
-print(f"Total applications: {len(templates) * len(smiles_list):,}")
 
-# Pre-initialize reactants once (recommended)
-t0 = time.perf_counter()
-reactants_list = []
-bad_smiles = 0
-for smi in smiles_list:
-    try:
-        reactants_list.append([rdchiralReactants(smi), smi])
-    except Exception:
-        bad_smiles += 1
-t1 = time.perf_counter()
-print(f"Initialized reactants in {t1 - t0:.3f}s (bad_smiles={bad_smiles})")
+print("=== Benchmarking ===")
+print("====Template initialization====")
+if LAZY_INIT_POSSIBLE:
+    t_start = time.perf_counter()
+    _, template_init_fail = initialize_templates(
+        templates, lazy_init_possible=True, lazy_init=True
+    )
+    t_end = time.perf_counter()
+    print(
+        f"Lazy template initialization time: {t_end - t_start:.3f} seconds for {len(templates)} templates"
+    )
+    print(f"Lazy template initialization failed: {template_init_fail}")
+    t_start = time.perf_counter()
+    _, smiles_init_fail = initialize_reactants(
+        smiles_list_initialization_test, lazy_init_possible=True, lazy_init=True
+    )
+    t_end = time.perf_counter()
+    print(
+        f"Lazy reactant initialization time: {t_end - t_start:.3f} seconds for {len(smiles_list_initialization_test)} reactants"
+    )
+    print(f"Lazy reactant initialization failed: {smiles_init_fail}")
 
-t2 = time.perf_counter()
-rxn_list = []
-template_init_fail = 0
-for smarts in templates:
-    try:
-        rxn_list.append([rdchiralReaction(smarts), smarts])
-    except Exception:
-        template_init_fail += 1
-t3 = time.perf_counter()
-print(
-    f"Initialized templates in {t3 - t2:.3f}s (template_init_fail={template_init_fail})"
+    t_start = time.perf_counter()
+    _, template_init_fail = initialize_templates(templates, lazy_init=False)
+    t_end = time.perf_counter()
+    print(
+        f"Eager template initialization time: {t_end - t_start:.3f} seconds for {len(templates)} templates"
+    )
+    print(f"Eager template initialization failed: {template_init_fail}")
+
+    t_start = time.perf_counter()
+    _, smiles_init_fail = initialize_reactants(
+        smiles_list_initialization_test, lazy_init_possible=True, lazy_init=False
+    )
+    t_end = time.perf_counter()
+    print(
+        f"Eager reactant initialization time: {t_end - t_start:.3f} seconds for {len(smiles_list_initialization_test)} reactants"
+    )
+    print(f"Eager reactant initialization failed: {smiles_init_fail}")
+
+else:
+    t_start = time.perf_counter()
+    _, template_init_fail = initialize_templates(
+        templates, lazy_init_possible=False, lazy_init=False
+    )
+    t_end = time.perf_counter()
+    print(
+        f"Eager template initialization time: {t_end - t_start:.3f} seconds for {len(templates)} templates"
+    )
+    print(f"Eager template initialization failed: {template_init_fail}")
+
+    t_start = time.perf_counter()
+    _, smiles_init_fail = initialize_reactants(
+        smiles_list_initialization_test, lazy_init_possible=False, lazy_init=False
+    )
+    t_end = time.perf_counter()
+    print(
+        f"Eager reactant initialization time: {t_end - t_start:.3f} seconds for {len(smiles_list_initialization_test)} reactants"
+    )
+    print(f"Eager reactant initialization failed: {smiles_init_fail}")
+
+print("====rdchiralRunText====")
+rdchiral_templates, template_init_fail = initialize_templates(
+    templates, lazy_init=False
+)
+rdchiral_reactants, smiles_init_fail = initialize_reactants(
+    smiles_list_not_pre_initialized, lazy_init=False
 )
 
-
-# t4 = time.perf_counter()
-# reactants_list = []
-# bad_smiles = 0
-# for smi in smiles_list:
-#     try:
-#         reactants_list.append([rdchiralReactants(smi), smi])
-#     except Exception:
-#         bad_smiles += 1
-# t5 = time.perf_counter()
-# print(f"Initialized reactants in {t5 - t4:.3f}s (bad_smiles={bad_smiles})")
-
-# t6 = time.perf_counter()
-# rxn_list = []
-# template_init_fail = 0
-# for smarts in templates:
-#     try:
-#         rxn_list.append([rdchiralReaction(smarts), smarts])
-#     except Exception:
-#         template_init_fail += 1
-# t7 = time.perf_counter()
-# print(
-#     f"Initialized templates in {t7 - t6:.3f}s (template_init_fail={template_init_fail})"
-# )
-
-# Main timing loop: pre-initialize each template once, then run on all reactants
-total_runs = 0
-total_outcomes = 0
-run_fail = 0
-
-
-randomized_order_list = []
-for i, [rdchiral_rxn, rxn_smarts] in enumerate(rxn_list, start=1):
-    for rdchiral_reactants, reactant_smi in reactants_list:
-        randomized_order_list.append(
-            ((rdchiral_rxn, rdchiral_reactants), (rxn_smarts, reactant_smi))
-        )
-random.shuffle(randomized_order_list)
-
-
-t8 = time.perf_counter()
-for i, [_, (rxn_smarts, reactant_smi)] in enumerate(randomized_order_list, start=1):
-    try:
-        rdchiralRunText(rxn_smarts, reactant_smi)
-    except Exception:
-        pass
-t9 = time.perf_counter()
-print(f"Pre-run complete in {t9 - t8:.3f}s")
-
-
+shuffled_smiles_list_not_pre_initialized = shuffle_reactants_templates_order(
+    rdchiral_reactants, rdchiral_templates
+)
 t_start = time.perf_counter()
-
-for i, [(rdchiral_rxn, rdchiral_reactants), _] in enumerate(
-    randomized_order_list, start=1
-):
-    try:
-        outcomes = rdchiralRun(rdchiral_rxn, rdchiral_reactants)
-        total_outcomes += len(outcomes)
-    except Exception:
-        run_fail += 1
-        total_runs += 1
-
-    if PRINT_EVERY and (i % PRINT_EVERY == 0):
-        elapsed = time.perf_counter() - t_start
-        rate = total_runs / elapsed if elapsed > 0 else float("inf")
-        print(
-            f"[{i}/{len(rxn_list) * len(reactants_list)}] elapsed={elapsed:.2f}s runs={total_runs:,} ({rate:,.1f} runs/s)"
-        )
-
+outcomes = run_rdchiralruntext(shuffled_smiles_list_not_pre_initialized)
 t_end = time.perf_counter()
+outcomes_smiles = [
+    ["|".join(sorted(outcome))] if outcome else [""] for outcome in outcomes
+]
+write_outcomes_file(
+    SAVE_FILE_PATH / (SAVE_FILE_PREFIX + "_rdchiralRunText.csv"),
+    ["outcome"],
+    outcomes_smiles,
+)
+print(f"run_rdchiralruntext time: {t_end - t_start:.3f} seconds")
 
-if OUTCOMES_FILE:
-    outcomes_path = Path(OUTCOMES_FILE)
-    with outcomes_path.open("w", encoding="utf-8") as outcomes_fh:
-        outcomes_fh.write(
-            "template_index\treactant_index\ttemplate_smarts\treactant_smiles\toutcomes\n"
-        )
-        for i, [rdchiral_rxn, orig_rxn] in enumerate(rxn_list, start=1):
-            for j, (rdchiral_reactants, orig_reactants) in enumerate(
-                reactants_list, start=1
-            ):
-                try:
-                    outcomes = rdchiralRun(rdchiral_rxn, rdchiral_reactants)
-                    normalized = "|".join(sorted(outcomes))
-                except Exception:
-                    normalized = "<ERROR>"
-                outcomes_fh.write(
-                    f"{i}\t{j}\t{orig_rxn}\t{orig_reactants}\t{normalized}\n"
-                )
 
-elapsed = t_end - t_start
-runs_per_sec = total_runs / elapsed if elapsed > 0 else float("inf")
+print("====rdchiralRun====")
+rdchiral_templates, template_init_fail = initialize_templates(
+    templates, lazy_init=False
+)
+rdchiral_reactants, smiles_init_fail = initialize_reactants(
+    smiles_list_pre_initialized, lazy_init=False
+)
 
-print("\n=== Results ===")
-print(f"elapsed_s: {elapsed:.3f}")
-print(f"total_runs: {total_runs:,}")
-print(f"runs_per_sec: {runs_per_sec:,.2f}")
-print(f"total_outcomes: {total_outcomes:,}")
-print(f"template_init_fail: {template_init_fail:,}")
-print(f"run_fail: {run_fail:,}")
+shuffled_smiles_list_pre_initialized = shuffle_reactants_templates_order(
+    rdchiral_reactants, rdchiral_templates
+)
+t_start = time.perf_counter()
+outcomes = run_rdchiralrun(shuffled_smiles_list_pre_initialized)
+t_end = time.perf_counter()
+outcomes_smiles = [
+    ["|".join(sorted(outcome))] if outcome else [""] for outcome in outcomes
+]
+write_outcomes_file(
+    SAVE_FILE_PATH / (SAVE_FILE_PREFIX + "_rdchiralRun.csv"),
+    ["outcome"],
+    outcomes_smiles,
+)
+print(f"run_rdchiralrun time: {t_end - t_start:.3f} seconds")
+
+
+print("====rdchiralExtract====")
+t_start = time.perf_counter()
+outcomes = run_rdchiralextract(mapped_reactions_list)
+t_end = time.perf_counter()
+outcomes_smarts = [
+    [ele.get("reaction_smarts", "")] if ele else [""] for ele in outcomes
+]
+write_outcomes_file(
+    SAVE_FILE_PATH / (SAVE_FILE_PREFIX + "_rdchiralExtract.csv"),
+    ["outcome"],
+    outcomes_smarts,
+)
+print(f"run_rdchiralextract time: {t_end - t_start:.3f} seconds")

@@ -21,6 +21,8 @@
 !scripts/run_speed_benchmark_envs.py
 !scripts/zinc250k.txt
 !scripts/uspto_top_1k_templates.txt
+!scripts/uspto_50k_mapped_reactions.txt
+!scripts/analyze_consistency.py
 
 !docs/
 !docs/index.md

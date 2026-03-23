@@ -182,6 +182,11 @@ def main() -> int:
         help="Path to the benchmark script (default: speed_benchmark_script.py)",
     )
     parser.add_argument(
+        "--save-file-prefix",
+        default="true",
+        help="Optional prefix forwarded to the benchmark script for naming saved files",
+    )
+    parser.add_argument(
         "--venv-py",
         default=".venv-py",
         help="Path for the pure-Python venv (default: .venv-py)",
@@ -225,7 +230,7 @@ def main() -> int:
     venv_cpp = (repo_root / args.venv_cpp).resolve()
 
     def _env_pure_python() -> None:
-        print("=== Building pure-Python environment ===")
+        print("\n=== Building pure-python environment ===\n")
         _build_env(
             repo_root=repo_root,
             venv_dir=venv_py,
@@ -236,12 +241,18 @@ def main() -> int:
         print("--- Import verification (pure python) ---")
         _verify_import(python=py_python)
         print("--- Running benchmark (pure python) ---")
+        extra_args: list[str] = []
+        if args.save_file_prefix is not None:
+            extra_args.extend(["--save-file-prefix", "pure_python"])
         _run_benchmark(
-            python=py_python, repo_root=repo_root, benchmark_path=benchmark_path
+            python=py_python,
+            repo_root=repo_root,
+            benchmark_path=benchmark_path,
+            extra_args=extra_args,
         )
 
     def _env_mypyc() -> None:
-        print("\n=== Building mypyc environment ===")
+        print("\n=== Building mypyc environment ===\n")
         _build_env(
             repo_root=repo_root,
             venv_dir=venv_mypyc,
@@ -252,8 +263,14 @@ def main() -> int:
         print("--- Import verification (mypyc) ---")
         _verify_import(python=mypyc_python)
         print("--- Running benchmark (mypyc) ---")
+        extra_args: list[str] = []
+        if args.save_file_prefix is not None:
+            extra_args.extend(["--save-file-prefix", "mypyc"])
         _run_benchmark(
-            python=mypyc_python, repo_root=repo_root, benchmark_path=benchmark_path
+            python=mypyc_python,
+            repo_root=repo_root,
+            benchmark_path=benchmark_path,
+            extra_args=extra_args,
         )
 
     def _env_original() -> None:
@@ -267,8 +284,14 @@ def main() -> int:
         print("--- Import verification (original rdchiral) ---")
         _verify_import(python=default_python)
         print("--- Running benchmark (original rdchiral) ---")
+        extra_args: list[str] = []
+        if args.save_file_prefix is not None:
+            extra_args.extend(["--save-file-prefix", "original"])
         _run_benchmark(
-            python=default_python, repo_root=repo_root, benchmark_path=benchmark_path
+            python=default_python,
+            repo_root=repo_root,
+            benchmark_path=benchmark_path,
+            extra_args=extra_args,
         )
 
     def _env_cpp() -> None:
@@ -276,11 +299,14 @@ def main() -> int:
         _build_conda_env(env_dir=venv_cpp, reinstall=args.reinstall)
         cpp_python = _conda_python(venv_cpp)
         print("--- Running benchmark (rdchiral_cpp) ---")
+        extra_args = ["--cpp"]
+        if args.save_file_prefix is not None:
+            extra_args.extend(["--save-file-prefix", "cpp"])
         _run_benchmark(
             python=cpp_python,
             repo_root=repo_root,
             benchmark_path=benchmark_path,
-            extra_args=["--cpp"],
+            extra_args=extra_args,
         )
 
     env_steps = [_env_pure_python, _env_mypyc, _env_original, _env_cpp]

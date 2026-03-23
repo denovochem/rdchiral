@@ -37,6 +37,7 @@ class rdchiralReaction(object):
 
     Args:
         reaction_smarts (str): Reaction SMARTS string
+        lazy_init (bool): If True, delay initialization of template_r and template_p until accessed
     """
 
     def __init__(self, reaction_smarts: str, lazy_init: bool = True):
@@ -336,6 +337,7 @@ class rdchiralReactants(object):
     Args:
         reactant_smiles (str): Reactant SMILES string
         custom_reactant_mapping (bool): Whether to use custom reactant mapping
+        lazy_init (bool): If True, delay initialization of template_r and template_p until accessed
     """
 
     def __init__(
