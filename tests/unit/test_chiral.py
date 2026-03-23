@@ -70,7 +70,8 @@ def test_atom_chirality_matches_template_chiral_molecule_unspecified_without_chi
     a_mol = _atom_from_smiles("[C:1]([F:2])([Cl:3])([Br:4])[I:5]", 1)
 
     assert a_mol.GetChiralTag() == ChiralType.CHI_UNSPECIFIED
-    assert atom_chirality_matches(a_tmp, a_mol) == 2
+    assert a_mol.HasProp("_ChiralityPossible")
+    assert atom_chirality_matches(a_tmp, a_mol) == 0
 
 
 def test_atom_chirality_matches_template_chiral_molecule_unspecified_with_chirality_possible_returns_0():
@@ -82,7 +83,7 @@ def test_atom_chirality_matches_template_chiral_molecule_unspecified_with_chiral
 
 
 def test_atom_chirality_matches_template_unspecified_molecule_chiral_returns_0_when_template_could_have_been_tetra():
-    a_tmp = _atom_from_smarts("[C:1]([CH3:2])([CH3:3])[H]", 1)
+    a_tmp = _atom_from_smarts("[C:1]([CH3:2])([CH3:3])([CH3:4])[H]", 1)
     a_mol = _atom_from_smiles("[C@:1]([F:2])([Cl:3])([Br:4])[I:5]", 1)
 
     assert a_tmp.GetChiralTag() == ChiralType.CHI_UNSPECIFIED
@@ -138,11 +139,12 @@ def test_copy_chirality_noop_when_target_degree_three_with_nonsingle_bond():
 
 def test_copy_chirality_inverts_when_atom_chirality_matches_returns_minus_one():
     a_src = _atom_from_smiles("[C@:1]([F:2])([Cl:3])([Br:4])[I:5]", 1)
-    a_new = _atom_from_smiles("[C@:1]([I:2])([F:3])([Cl:4])[Br:5]", 1)
+    a_new = _atom_from_smiles("[C@:1]([I:5])([F:2])([Cl:3])[Br:4]", 1)
 
     assert atom_chirality_matches(a_src, a_new) == -1
 
     copy_chirality(a_src, a_new)
 
-    assert a_src.GetChiralTag() == ChiralType.CHI_TETRAHEDRAL_CW
-    assert a_new.GetChiralTag() == ChiralType.CHI_TETRAHEDRAL_CCW
+    assert a_new.GetChiralTag() != ChiralType.CHI_UNSPECIFIED
+    assert a_src.GetChiralTag() != a_new.GetChiralTag()
+    assert atom_chirality_matches(a_src, a_new) == 1

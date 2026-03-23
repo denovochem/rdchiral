@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 from rdchiral.initialization import rdchiralReactants, rdchiralReaction
-from rdchiral.main import rdchiralRun
+from rdchiral.main import rdchiralRun, rdchiralRunText
 
 _parser = argparse.ArgumentParser()
 _parser.add_argument(
@@ -96,6 +96,31 @@ print(
     f"Initialized templates in {t3 - t2:.3f}s (template_init_fail={template_init_fail})"
 )
 
+
+# t4 = time.perf_counter()
+# reactants_list = []
+# bad_smiles = 0
+# for smi in smiles_list:
+#     try:
+#         reactants_list.append([rdchiralReactants(smi), smi])
+#     except Exception:
+#         bad_smiles += 1
+# t5 = time.perf_counter()
+# print(f"Initialized reactants in {t5 - t4:.3f}s (bad_smiles={bad_smiles})")
+
+# t6 = time.perf_counter()
+# rxn_list = []
+# template_init_fail = 0
+# for smarts in templates:
+#     try:
+#         rxn_list.append([rdchiralReaction(smarts), smarts])
+#     except Exception:
+#         template_init_fail += 1
+# t7 = time.perf_counter()
+# print(
+#     f"Initialized templates in {t7 - t6:.3f}s (template_init_fail={template_init_fail})"
+# )
+
 # Main timing loop: pre-initialize each template once, then run on all reactants
 total_runs = 0
 total_outcomes = 0
@@ -111,14 +136,14 @@ for i, [rdchiral_rxn, rxn_smarts] in enumerate(rxn_list, start=1):
 random.shuffle(randomized_order_list)
 
 
-t4 = time.perf_counter()
+t8 = time.perf_counter()
 for i, [_, (rxn_smarts, reactant_smi)] in enumerate(randomized_order_list, start=1):
     try:
         rdchiralRunText(rxn_smarts, reactant_smi)
     except Exception:
         pass
-t5 = time.perf_counter()
-print(f"Pre-run complete in {t5 - t4:.3f}s")
+t9 = time.perf_counter()
+print(f"Pre-run complete in {t9 - t8:.3f}s")
 
 
 t_start = time.perf_counter()

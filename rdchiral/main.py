@@ -173,9 +173,14 @@ def rdchiralRun(
     outcomes = deduplicate_outcomes(outcomes, reactants, rxn)
 
     # If both reactants and template are achiral, we can return the outcomes directly
-    # TODO: handle intramolecular reactions, return mapping
-    # also handle keep mapnums
-    if not reactants.reactants_is_chiral and not rxn.template_is_chiral:
+    # TODO: handle intramolecular reactions, return mapping, handle keep_mapnums
+    # also allow to return early if all outcomes are not intramolecular
+    if (
+        not reactants.reactants_is_chiral
+        and not rxn.template_is_chiral
+        and not return_mapped
+        and not keep_mapnums
+    ):
         if len(outcomes) == 1:
             if len([ele for ele in outcomes[0]]) == 1:
                 achiral_outcome = outcomes[0][0]
@@ -192,7 +197,12 @@ def rdchiralRun(
                 achiral_outcome_smiles = Chem.MolToSmiles(achiral_outcome)
 
                 if return_mapped:
-                    return [achiral_outcome_smiles], {mapped_outcome: tuple([])}
+                    substruct_matches = reactants.reactants_achiral.GetSubstructMatches(
+                        rxn.template_r, uniquify=False
+                    )
+                    return [achiral_outcome_smiles], {
+                        mapped_outcome: tuple(substruct_matches)
+                    }
                 else:
                     return [achiral_outcome_smiles]
 
@@ -465,9 +475,11 @@ def assign_outcome_atom_mapnums(
 
             # Define map num -> reactant template atom map
             if a.HasProp("old_mapno"):
-                rt_atom = atoms_rt_map[a.GetIntProp("old_mapno")]
-                rt_atom.SetAtomMapNum(mapnum)
-                atoms_rt[mapnum] = rt_atom
+                old_mapno = a.GetIntProp("old_mapno")
+                if old_mapno in atoms_rt_map:
+                    rt_atom = atoms_rt_map[old_mapno]
+                    rt_atom.SetAtomMapNum(mapnum)
+                    atoms_rt[mapnum] = rt_atom
 
     return outcome, atoms_rt, atoms_rt_map
 
