@@ -31,7 +31,16 @@ def _build_env_from_url(*, install_spec: str, venv_dir: Path, reinstall: bool) -
 
     venv_python = _venv_python(venv_dir)
     _run(
-        ["uv", "pip", "install", "--python", str(venv_python), install_spec, "rdkit"],
+        [
+            "uv",
+            "pip",
+            "install",
+            "--python",
+            str(venv_python),
+            install_spec,
+            "rdkit",
+            "rdcanon",
+        ],
     )
 
 
@@ -98,6 +107,7 @@ def _build_conda_env(*, env_dir: Path, reinstall: bool) -> None:
                 "-c",
                 "conda-forge",
                 "rdchiral_cpp",
+                "rdcanon",
                 "-y",
             ]
         )
@@ -111,6 +121,7 @@ def _build_conda_env(*, env_dir: Path, reinstall: bool) -> None:
                 "-c",
                 "conda-forge",
                 "rdchiral_cpp",
+                "rdcanon",
                 "-y",
             ]
         )
@@ -136,6 +147,19 @@ def _build_env(
         ["uv", "pip", "install", "--python", str(venv_python), "."],
         env=env,
         cwd=repo_root,
+    )
+
+    _run(
+        [
+            "uv",
+            "pip",
+            "install",
+            "--python",
+            str(venv_python),
+            "rdkit",
+            "rdcanon",
+        ],
+        env=env,
     )
 
 

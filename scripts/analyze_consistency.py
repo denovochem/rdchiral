@@ -5,6 +5,11 @@ from typing import Dict, List, Tuple
 
 import pandas as pd
 
+try:
+    from rdcanon import canon_reaction_smarts
+except ImportError:  # pragma: no cover
+    canon_reaction_smarts = None
+
 _SUFFIXES: Tuple[str, ...] = (
     "_rdchiralExtract",
     "_rdchiralRun",
@@ -47,6 +52,22 @@ def _load_outcome_series(csv_path: Path) -> pd.Series:
     return df["outcome"].astype(str)
 
 
+def _canon_outcome_series(outcome: pd.Series) -> pd.Series:
+    if canon_reaction_smarts is None:
+        raise ImportError(
+            "rdcanon is required to canonicalize reaction SMARTS. "
+            "Install the 'dev' dependency group or `pip install rdcanon`."
+        )
+
+    def _canon_one(smarts: str) -> str:
+        try:
+            return canon_reaction_smarts(smarts)
+        except Exception:
+            return smarts
+
+    return outcome.map(_canon_one)
+
+
 def build_outcome_dataframe(scripts_dir: Path, suffix: str) -> pd.DataFrame:
     csv_paths = _find_csvs_by_suffix(scripts_dir, suffix)
     if not csv_paths:
@@ -56,7 +77,10 @@ def build_outcome_dataframe(scripts_dir: Path, suffix: str) -> pd.DataFrame:
     for csv_path in csv_paths:
         prefix = _prefix_from_filename(csv_path, suffix)
         col_name = f"{prefix}_outcome"
-        cols[col_name] = _load_outcome_series(csv_path)
+        outcome = _load_outcome_series(csv_path)
+        if suffix == "_rdchiralExtract":
+            outcome = _canon_outcome_series(outcome)
+        cols[col_name] = outcome
 
     out_df = pd.DataFrame(cols)
     return out_df

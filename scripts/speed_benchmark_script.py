@@ -7,7 +7,6 @@ import time
 from pathlib import Path
 from typing import List, Tuple
 
-from rdcanon import canon_reaction_smarts
 from rdkit import Chem
 
 _script_dir = Path(__file__).resolve().parent
@@ -375,10 +374,9 @@ t_end = time.perf_counter()
 outcomes_smarts = [
     [ele.get("reaction_smarts", "")] if ele else [""] for ele in outcomes
 ]
-outcomes_smarts_canon = [canon_reaction_smarts(smarts) for smarts in outcomes_smarts]
 write_outcomes_file(
     SAVE_FILE_PATH / (SAVE_FILE_PREFIX + "_rdchiralExtract.csv"),
     ["outcome"],
-    outcomes_smarts_canon,
+    outcomes_smarts,
 )
 print(f"run_rdchiralextract time: {t_end - t_start:.3f} seconds")
