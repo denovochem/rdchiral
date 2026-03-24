@@ -1,7 +1,5 @@
 # Consistency with original rdchiral
 
-The intention of this fork is to maintain consistency with the upstream `rdchiral` library while improving performance through static typing and compilation with `mypyc`. Simply install this library and use it as a drop-in replacement for `rdchiral`. There are however a small number of behavioral changes, described below.
-
 This page describes how we measure consistency with upstream `rdchiral`, and summarizes the results.
 
 ## Methodology
@@ -52,29 +50,29 @@ The helper script `scripts/run_speed_benchmark_envs.py` builds and runs multiple
 
 The tables below summarizes agreement with upstream `rdchiral`.
 
-#### `_rdchiralExtract` (rows: 100)
+#### `_rdchiralExtract` (extracting templates from 50016 mapped reactions)
 
 | library | identical / total | identical % |
-| --- | --- | --- |
-| cpp | 0 / 100 | 0.00% |
-| mypyc | 2 / 100 | 2.00% |
-| pure_python | 90 / 100 | 90.00% |
+| --- | :---: | :---: |
+| cpp | 0 / 50016 | 0.00% |
+| mypyc | 1171 / 50016 | 2.34% |
+| pure_python | 47511 / 50016 | 94.99% |
 
-#### `_rdchiralRun` (rows: 10000)
-
-| library | identical / total | identical % |
-| --- | --- | --- |
-| cpp | 9973 / 10000 | 99.73% |
-| mypyc | 10000 / 10000 | 100.00% |
-| pure_python | 10000 / 10000 | 100.00% |
-
-#### `_rdchiralRunText` (rows: 10000)
+#### `_rdchiralRun` (applying 1000 templates to 1000 SMILES)
 
 | library | identical / total | identical % |
-| --- | --- | --- |
-| cpp | 9973 / 10000 | 99.73% |
-| mypyc | 10000 / 10000 | 100.00% |
-| pure_python | 10000 / 10000 | 100.00% |
+| --- | :---: | :---: |
+| cpp | 995590 / 1000000 | 99.56% |
+| mypyc | 999718 / 1000000 | 99.97% |
+| pure_python | 999718 / 1000000 | 99.97% |
+
+#### `_rdchiralRunText` (applying 1000 templates to 100 SMILES)
+
+| library | identical / total | identical % |
+| --- | :---: | :---: |
+| cpp | 99576 / 100000 | 99.58% |
+| mypyc | 99980 / 100000 | 99.98% |
+| pure_python | 99980 / 100000 | 99.98% |
 
 ## Reproducing the analysis
 

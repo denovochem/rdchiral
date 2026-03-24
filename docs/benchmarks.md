@@ -4,12 +4,12 @@ All benchmarks are performed on a fresh reboot of a Latitude 5540 with an Intel 
 
 ## Environments
 
-The same benchmark workload is executed in multiple environments:
+The helper script `scripts/run_speed_benchmark_envs.py` builds and runs multiple environments:
 
-- **orig**: upstream `rdchiral` from GitHub
-- **pure_python**: this repo, pure-Python (no mypyc)
-- **mypyc**: this repo, compiled with mypyc (`RDCHIRAL_USE_MYPYC=1`)
-- **cpp**: `rdchiral_cpp` from conda-forge
+- `original`: upstream `rdchiral` installed from `git+https://github.com/connorcoley/rdchiral.git`.
+- `pure_python`: this fork installed normally (pure-Python mode).
+- `mypyc`: this fork installed with `RDCHIRAL_USE_MYPYC=1`.
+- `cpp`: the `rdchiral_cpp` conda-forge package (run with `--cpp`).
 
 ## Metrics
 
@@ -62,7 +62,7 @@ The script reports timings for:
 This benchmark consists of applying 1000 templates to 1000 reactant SMILES for a total of 1,000,000 applications.
 
 | env | reactants_init | reactants_init_ratio | templates_init | templates_init_ratio | application | application_ratio |
-| --- | --- | --- | --- | --- | --- | --- |
+| --- | :---: | :---: | :---: | :---: | :---: | :---: |
 | orig | 0.560 (0.050) | 1.000 | 0.608 (0.035) | 1.000 | 118.250 (2.837) | 1.000 |
 | pure_python | 0.551 (0.077) | 1.016 | 0.739 (0.087) | 0.822 | 39.650 (0.169) | 2.982 |
 | mypyc | 0.589 (0.025) | 0.950 | 0.733 (0.014) | 0.829 | 38.847 (1.501) | 3.044 |

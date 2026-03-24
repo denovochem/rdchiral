@@ -118,7 +118,14 @@ def rdchiralRunText(
     """
     rxn = rdchiralReaction(reaction_smarts)
     reactants = rdchiralReactants(reactant_smiles, custom_reactant_mapping)
-    return rdchiralRun(rxn, reactants, keep_mapnums, combine_enantiomers, return_mapped)
+    return rdchiralRun(
+        rxn=rxn,
+        reactants=reactants,
+        keep_mapnums=keep_mapnums,
+        combine_enantiomers=combine_enantiomers,
+        return_mapped=return_mapped,
+        skip_reset=True,
+    )
 
 
 def rdchiralRun(
@@ -127,6 +134,7 @@ def rdchiralRun(
     keep_mapnums: bool = False,
     combine_enantiomers: bool = True,
     return_mapped: bool = False,
+    skip_reset: bool = False,
 ) -> Any:
     """
     Apply a pre-initialized `rdchiralReaction` template to pre-initialized reactants.
@@ -142,6 +150,7 @@ def rdchiralRun(
         combine_enantiomers (bool): If True, attempt to combine enantiomeric outcomes
             into racemic outcomes.
         return_mapped (bool): If True, also return per-outcome atom-mapped information.
+        skip_reset (bool): If True, skip resetting the reaction object before running.
 
     Returns:
         Any:
@@ -158,7 +167,8 @@ def rdchiralRun(
         numbers, and may mutate intermediate RDKit molecules produced by RDKit during
         post-processing.
     """
-    rxn.reset()
+    if not skip_reset:
+        rxn.reset()
 
     # Run naive RDKit on achiral version of molecules
     outcomes: Tuple[Tuple[Chem.Mol, ...], ...] = rxn.rxn.RunReactants(

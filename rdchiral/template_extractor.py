@@ -365,7 +365,7 @@ def get_special_groups(mol: Chem.Mol) -> List[Tuple[List[int], List[int]]]:
             for pattern_idx, atom_idx in enumerate(match):
                 if pattern_idx in add_if_match:
                     add_if.append(atom_idx)
-            groups.append((add_if, match))
+            groups.append((add_if, list(match)))
     return groups
 
 

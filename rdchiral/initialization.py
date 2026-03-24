@@ -3,7 +3,7 @@ from typing import Dict, List, Optional, Set, Tuple
 import rdkit.Chem as Chem
 import rdkit.Chem.AllChem as AllChem
 from rdkit.Chem import rdChemReactions, rdmolops
-from rdkit.Chem.rdchem import BondDir, BondStereo, ChiralType
+from rdkit.Chem.rdchem import BondDir, ChiralType
 
 from rdchiral.bonds import (
     bond_dirs_by_mapnum,
@@ -446,20 +446,7 @@ class rdchiralReactants(object):
     def reactants_achiral(self) -> Chem.Mol:
         if self._reactants_achiral is None:
             reactants_achiral = Chem.Mol(self.reactants)
-            if self._n_atoms is None:
-                self._n_atoms = reactants_achiral.GetNumAtoms()
-            n_atoms = self._n_atoms
-            if self._n_bonds is None:
-                self._n_bonds = reactants_achiral.GetNumBonds()
-            n_bonds = self._n_bonds
-            for idx in range(n_atoms):
-                reactants_achiral.GetAtomWithIdx(idx).SetChiralTag(
-                    ChiralType.CHI_UNSPECIFIED
-                )
-            for idx in range(n_bonds):
-                b = reactants_achiral.GetBondWithIdx(idx)
-                b.SetStereo(BondStereo.STEREONONE)
-                b.SetBondDir(BondDir.NONE)
+            Chem.RemoveStereochemistry(reactants_achiral)
             self._reactants_achiral = reactants_achiral
         return self._reactants_achiral
 

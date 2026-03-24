@@ -241,7 +241,7 @@ def main() -> int:
         print("--- Import verification (pure python) ---")
         _verify_import(python=py_python)
         print("--- Running benchmark (pure python) ---")
-        extra_args: list[str] = []
+        extra_args: list[str] = ["--lazy-init-possible"]
         if args.save_file_prefix is not None:
             extra_args.extend(["--save-file-prefix", "pure_python"])
         _run_benchmark(
@@ -263,7 +263,7 @@ def main() -> int:
         print("--- Import verification (mypyc) ---")
         _verify_import(python=mypyc_python)
         print("--- Running benchmark (mypyc) ---")
-        extra_args: list[str] = []
+        extra_args: list[str] = ["--lazy-init-possible"]
         if args.save_file_prefix is not None:
             extra_args.extend(["--save-file-prefix", "mypyc"])
         _run_benchmark(

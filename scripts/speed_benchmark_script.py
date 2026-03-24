@@ -7,10 +7,34 @@ import time
 from pathlib import Path
 from typing import List, Tuple
 
-repo_root = Path(
-    os.environ.get("RDCHIRAL_REPO_ROOT", Path(__file__).resolve().parent.parent)
-)
-sys.path.insert(0, str(repo_root))
+from rdcanon import canon_reaction_smarts
+from rdkit import Chem
+
+_script_dir = Path(__file__).resolve().parent
+_default_repo_root = _script_dir.parent
+_env_root = Path(os.environ.get("RDCHIRAL_REPO_ROOT", _default_repo_root))
+
+# `run_speed_benchmark_envs.py` sets RDCHIRAL_REPO_ROOT to <repo_root>/scripts.
+# When running directly, we want imports to come from the repo root, while data files
+# should be resolved from the directory that actually contains them.
+if _env_root.name == "scripts" and (_env_root.parent / "rdchiral").exists():
+    repo_root = _env_root.parent
+    _data_root = _env_root
+else:
+    repo_root = _env_root
+    _data_root = _env_root
+
+if (
+    not (_data_root / "uspto_top_1k_templates.txt").exists()
+    and (_data_root / "scripts" / "uspto_top_1k_templates.txt").exists()
+):
+    _data_root = _data_root / "scripts"
+
+# Only add the repo root to sys.path when running standalone (no RDCHIRAL_REPO_ROOT).
+# When called from run_speed_benchmark_envs.py, the venv already has rdchiral installed
+# and we must NOT shadow it with the in-tree source.
+if "RDCHIRAL_REPO_ROOT" not in os.environ:
+    sys.path.insert(0, str(repo_root))
 
 from rdchiral.initialization import rdchiralReactants, rdchiralReaction  # noqa: E402
 from rdchiral.main import rdchiralRun, rdchiralRunText  # noqa: E402
@@ -23,10 +47,10 @@ MAX_SMILES_PRE_INITIALIZED = 1000
 MAX_SMILES_NOT_PRE_INITIALIZED = 100
 MAX_MAPPED_REACTIONS = 100000
 
-TEMPLATES_PATH = repo_root / "uspto_top_1k_templates.txt"
-SMILES_PATH = repo_root / "zinc250k.txt"
-MAPPED_REACTIONS_PATH = repo_root / "uspto_50k_mapped_reactions.txt"
-SAVE_FILE_PATH = repo_root / "generated_csvs"
+TEMPLATES_PATH = _data_root / "uspto_top_1k_templates.txt"
+SMILES_PATH = _data_root / "zinc250k.txt"
+MAPPED_REACTIONS_PATH = _data_root / "uspto_50k_mapped_reactions.txt"
+SAVE_FILE_PATH = _data_root / "generated_csvs"
 SAVE_FILE_PATH.mkdir(parents=True, exist_ok=True)
 
 
@@ -303,7 +327,10 @@ t_start = time.perf_counter()
 outcomes = run_rdchiralruntext(shuffled_smiles_list_not_pre_initialized)
 t_end = time.perf_counter()
 outcomes_smiles = [
-    ["|".join(sorted(outcome))] if outcome else [""] for outcome in outcomes
+    "|".join(sorted([Chem.MolToSmiles(Chem.MolFromSmiles(s)) for s in outcome]))
+    if outcome
+    else ""
+    for outcome in outcomes
 ]
 write_outcomes_file(
     SAVE_FILE_PATH / (SAVE_FILE_PREFIX + "_rdchiralRunText.csv"),
@@ -328,7 +355,10 @@ t_start = time.perf_counter()
 outcomes = run_rdchiralrun(shuffled_smiles_list_pre_initialized)
 t_end = time.perf_counter()
 outcomes_smiles = [
-    ["|".join(sorted(outcome))] if outcome else [""] for outcome in outcomes
+    "|".join(sorted([Chem.MolToSmiles(Chem.MolFromSmiles(s)) for s in outcome]))
+    if outcome
+    else ""
+    for outcome in outcomes
 ]
 write_outcomes_file(
     SAVE_FILE_PATH / (SAVE_FILE_PREFIX + "_rdchiralRun.csv"),
@@ -345,9 +375,10 @@ t_end = time.perf_counter()
 outcomes_smarts = [
     [ele.get("reaction_smarts", "")] if ele else [""] for ele in outcomes
 ]
+outcomes_smarts_canon = [canon_reaction_smarts(smarts) for smarts in outcomes_smarts]
 write_outcomes_file(
     SAVE_FILE_PATH / (SAVE_FILE_PREFIX + "_rdchiralExtract.csv"),
     ["outcome"],
-    outcomes_smarts,
+    outcomes_smarts_canon,
 )
 print(f"run_rdchiralextract time: {t_end - t_start:.3f} seconds")
