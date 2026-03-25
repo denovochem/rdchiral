@@ -39,7 +39,6 @@ def _build_env_from_url(*, install_spec: str, venv_dir: Path, reinstall: bool) -
             str(venv_python),
             install_spec,
             "rdkit",
-            "rdcanon",
         ],
     )
 
@@ -107,7 +106,6 @@ def _build_conda_env(*, env_dir: Path, reinstall: bool) -> None:
                 "-c",
                 "conda-forge",
                 "rdchiral_cpp",
-                "rdcanon",
                 "-y",
             ]
         )
@@ -121,7 +119,6 @@ def _build_conda_env(*, env_dir: Path, reinstall: bool) -> None:
                 "-c",
                 "conda-forge",
                 "rdchiral_cpp",
-                "rdcanon",
                 "-y",
             ]
         )
@@ -157,7 +154,6 @@ def _build_env(
             "--python",
             str(venv_python),
             "rdkit",
-            "rdcanon",
         ],
         env=env,
     )

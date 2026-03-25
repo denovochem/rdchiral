@@ -105,12 +105,19 @@ def bond_to_label(bond: Chem.Bond) -> str:
             and the bond SMARTS.
     """
 
-    a1_label = str(bond.GetBeginAtom().GetAtomicNum())
-    a2_label = str(bond.GetEndAtom().GetAtomicNum())
-    if bond.GetBeginAtom().GetAtomMapNum():
-        a1_label += str(bond.GetBeginAtom().GetAtomMapNum())
-    if bond.GetEndAtom().GetAtomMapNum():
-        a2_label += str(bond.GetEndAtom().GetAtomMapNum())
+    bond_begin_atom = bond.GetBeginAtom()
+    bond_end_atom = bond.GetEndAtom()
+    begin_atom_atomic_num = bond_begin_atom.GetAtomicNum()
+    end_atom_atomic_num = bond_end_atom.GetAtomicNum()
+    begin_atom_map_num = bond_begin_atom.GetAtomMapNum()
+    end_atom_map_num = bond_end_atom.GetAtomMapNum()
+
+    a1_label = str(begin_atom_atomic_num)
+    a2_label = str(end_atom_atomic_num)
+    if begin_atom_map_num:
+        a1_label += str(begin_atom_map_num)
+    if end_atom_map_num:
+        a2_label += str(end_atom_map_num)
     atoms = sorted([a1_label, a2_label])
 
     return "{}{}{}".format(atoms[0], Chem.Bond.GetSmarts(bond), atoms[1])
@@ -143,16 +150,22 @@ def atoms_are_different(atom1: Chem.Atom, atom2: Chem.Atom) -> bool:
         return True
 
     # Check bonds and nearest neighbor identity
+    # we can improve speed here by storing atom1 and atom2 info so we
+    # only need to calculate for the other atom in each bond
     atom_1_bonds: Tuple[Chem.Bond, ...] = tuple(atom1.GetBonds())
     bonds1: List[str] = []
     for bond in atom_1_bonds:
-        bonds1.append(bond_to_label(bond))
+        labelled_bond = bond_to_label(bond)
+        bonds1.append(labelled_bond)
     bonds1 = sorted(bonds1)
 
     atom_2_bonds: Tuple[Chem.Bond, ...] = tuple(atom2.GetBonds())
     bonds2: List[str] = []
     for bond in atom_2_bonds:
-        bonds2.append(bond_to_label(bond))
+        labelled_bond = bond_to_label(bond)
+        if labelled_bond not in bonds1:
+            return True
+        bonds2.append(labelled_bond)
     bonds2 = sorted(bonds2)
 
     if bonds1 != bonds2:
