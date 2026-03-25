@@ -41,10 +41,10 @@ from rdchiral.template_extractor import extract_from_reaction  # noqa: E402
 
 RANDOM_SEED = 42
 MAX_TEMPLATES = None
-MAX_SMILES_INITIALIZATION_TEST = 10000
-MAX_SMILES_PRE_INITIALIZED = 1000
-MAX_SMILES_NOT_PRE_INITIALIZED = 100
-MAX_MAPPED_REACTIONS = 100000
+MAX_SMILES_INITIALIZATION_TEST = 1000
+MAX_SMILES_PRE_INITIALIZED = 100
+MAX_SMILES_NOT_PRE_INITIALIZED = 10
+MAX_MAPPED_REACTIONS = 10000
 
 TEMPLATES_PATH = _data_root / "uspto_top_1k_templates.txt"
 SMILES_PATH = _data_root / "zinc250k.txt"
@@ -69,6 +69,36 @@ def write_outcomes_file(
                 outcomes_fh.write("\t".join([""] * len(column_headers)) + "\n")
             else:
                 outcomes_fh.write("\t".join(data) + "\n")
+
+
+def write_timing_file(
+    timing_path: Path,
+    lazy_template_init_time_s: float | None,
+    lazy_reactant_init_time_s: float | None,
+    eager_template_init_time_s: float,
+    eager_reactant_init_time_s: float,
+    run_rdchiralruntext_time_s: float,
+    run_rdchiralrun_time_s: float,
+    run_rdchiralextract_time_s: float,
+) -> None:
+    with timing_path.open("w", encoding="utf-8") as timing_fh:
+        if lazy_template_init_time_s is not None:
+            timing_fh.write(
+                f"lazy_template_initialization\t{lazy_template_init_time_s:.6f}\n"
+            )
+        if lazy_reactant_init_time_s is not None:
+            timing_fh.write(
+                f"lazy_reactant_initialization\t{lazy_reactant_init_time_s:.6f}\n"
+            )
+        timing_fh.write(
+            f"eager_template_initialization\t{eager_template_init_time_s:.6f}\n"
+        )
+        timing_fh.write(
+            f"eager_reactant_initialization\t{eager_reactant_init_time_s:.6f}\n"
+        )
+        timing_fh.write(f"run_rdchiralruntext\t{run_rdchiralruntext_time_s:.6f}\n")
+        timing_fh.write(f"run_rdchiralrun\t{run_rdchiralrun_time_s:.6f}\n")
+        timing_fh.write(f"run_rdchiralextract\t{run_rdchiralextract_time_s:.6f}\n")
 
 
 def initialize_templates(
@@ -252,12 +282,17 @@ if MAX_MAPPED_REACTIONS is not None:
 
 print("=== Benchmarking ===")
 print("====Template initialization====")
+lazy_template_init_time_s = None
+lazy_reactant_init_time_s = None
+eager_template_init_time_s = 0.0
+eager_reactant_init_time_s = 0.0
 if LAZY_INIT_POSSIBLE:
     t_start = time.perf_counter()
     _, template_init_fail = initialize_templates(
         templates, lazy_init_possible=True, lazy_init=True
     )
     t_end = time.perf_counter()
+    lazy_template_init_time_s = t_end - t_start
     print(
         f"Lazy template initialization time: {t_end - t_start:.3f} seconds for {len(templates)} templates"
     )
@@ -267,6 +302,7 @@ if LAZY_INIT_POSSIBLE:
         smiles_list_initialization_test, lazy_init_possible=True, lazy_init=True
     )
     t_end = time.perf_counter()
+    lazy_reactant_init_time_s = t_end - t_start
     print(
         f"Lazy reactant initialization time: {t_end - t_start:.3f} seconds for {len(smiles_list_initialization_test)} reactants"
     )
@@ -275,6 +311,7 @@ if LAZY_INIT_POSSIBLE:
     t_start = time.perf_counter()
     _, template_init_fail = initialize_templates(templates, lazy_init=False)
     t_end = time.perf_counter()
+    eager_template_init_time_s = t_end - t_start
     print(
         f"Eager template initialization time: {t_end - t_start:.3f} seconds for {len(templates)} templates"
     )
@@ -285,6 +322,7 @@ if LAZY_INIT_POSSIBLE:
         smiles_list_initialization_test, lazy_init_possible=True, lazy_init=False
     )
     t_end = time.perf_counter()
+    eager_reactant_init_time_s = t_end - t_start
     print(
         f"Eager reactant initialization time: {t_end - t_start:.3f} seconds for {len(smiles_list_initialization_test)} reactants"
     )
@@ -296,6 +334,7 @@ else:
         templates, lazy_init_possible=False, lazy_init=False
     )
     t_end = time.perf_counter()
+    eager_template_init_time_s = t_end - t_start
     print(
         f"Eager template initialization time: {t_end - t_start:.3f} seconds for {len(templates)} templates"
     )
@@ -306,6 +345,7 @@ else:
         smiles_list_initialization_test, lazy_init_possible=False, lazy_init=False
     )
     t_end = time.perf_counter()
+    eager_reactant_init_time_s = t_end - t_start
     print(
         f"Eager reactant initialization time: {t_end - t_start:.3f} seconds for {len(smiles_list_initialization_test)} reactants"
     )
@@ -325,6 +365,7 @@ shuffled_smiles_list_not_pre_initialized = shuffle_reactants_templates_order(
 t_start = time.perf_counter()
 outcomes = run_rdchiralruntext(shuffled_smiles_list_not_pre_initialized)
 t_end = time.perf_counter()
+run_rdchiralruntext_time_s = t_end - t_start
 outcomes_smiles = [
     "|".join(sorted([Chem.MolToSmiles(Chem.MolFromSmiles(s)) for s in outcome]))
     if outcome
@@ -353,6 +394,7 @@ shuffled_smiles_list_pre_initialized = shuffle_reactants_templates_order(
 t_start = time.perf_counter()
 outcomes = run_rdchiralrun(shuffled_smiles_list_pre_initialized)
 t_end = time.perf_counter()
+run_rdchiralrun_time_s = t_end - t_start
 outcomes_smiles = [
     "|".join(sorted([Chem.MolToSmiles(Chem.MolFromSmiles(s)) for s in outcome]))
     if outcome
@@ -371,6 +413,7 @@ print("====rdchiralExtract====")
 t_start = time.perf_counter()
 outcomes = run_rdchiralextract(mapped_reactions_list)
 t_end = time.perf_counter()
+run_rdchiralextract_time_s = t_end - t_start
 outcomes_smarts = [
     [ele.get("reaction_smarts", "")] if ele else [""] for ele in outcomes
 ]
@@ -380,3 +423,15 @@ write_outcomes_file(
     outcomes_smarts,
 )
 print(f"run_rdchiralextract time: {t_end - t_start:.3f} seconds")
+
+
+write_timing_file(
+    SAVE_FILE_PATH / (SAVE_FILE_PREFIX + "_timings.txt"),
+    lazy_template_init_time_s=lazy_template_init_time_s,
+    lazy_reactant_init_time_s=lazy_reactant_init_time_s,
+    eager_template_init_time_s=eager_template_init_time_s,
+    eager_reactant_init_time_s=eager_reactant_init_time_s,
+    run_rdchiralruntext_time_s=run_rdchiralruntext_time_s,
+    run_rdchiralrun_time_s=run_rdchiralrun_time_s,
+    run_rdchiralextract_time_s=run_rdchiralextract_time_s,
+)

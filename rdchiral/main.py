@@ -167,6 +167,20 @@ def rdchiralRun(
         numbers, and may mutate intermediate RDKit molecules produced by RDKit during
         post-processing.
     """
+    if not rxn.fast_reactant_smarts or not reactants.fast_reactants:
+        if return_mapped:
+            return [], {}
+        else:
+            return []
+
+    if not reactants.reactants_achiral.HasSubstructMatch(
+        rxn.fast_reactant_smarts, useChirality=False
+    ):
+        if return_mapped:
+            return [], {}
+        else:
+            return []
+
     if not skip_reset:
         rxn.reset()
 

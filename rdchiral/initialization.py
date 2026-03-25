@@ -27,7 +27,7 @@ class rdchiralReaction(object):
     Attributes:
         reaction_smarts (str): Reaction SMARTS string
         rxn (rdkit.Chem.rdChemReactions.ChemicalReaction): RDKit reaction object.
-            Generated from `reaction_smarts` using `initialize_rxn_from_smarts`
+            Generated lazily from `reaction_smarts` using `initialize_rxn_from_smarts`
         template_r: Reaction reactant template fragments
         template_p: Reaction product template fragments
         atoms_rt_map (dict): Dictionary mapping from atom map number to RDKit Atom for reactants
@@ -44,10 +44,10 @@ class rdchiralReaction(object):
         # Keep smarts, useful for reporting
         self.reaction_smarts: str = reaction_smarts
 
-        # Initialize - assigns stereochemistry and fills in missing rct map numbers
-        self.rxn: rdChemReactions.ChemicalReaction = initialize_rxn_from_smarts(
-            reaction_smarts
-        )
+        self.fast_reactant_smarts = Chem.MolFromSmarts(reaction_smarts.split(">>")[0])
+
+        # Initialize lazily - assigns stereochemistry and fills in missing rct map numbers
+        self._rxn: Optional[rdChemReactions.ChemicalReaction] = None
 
         self._template_r_orig: Optional[Chem.Mol] = None
         self._template_p_orig: Optional[Chem.Mol] = None
@@ -77,6 +77,7 @@ class rdchiralReaction(object):
         self._template_is_chiral: Optional[bool] = None
 
         if not lazy_init:
+            _ = self.rxn
             self._ensure_templates()
             _ = self.template_r_orig
             _ = self.template_p_orig
@@ -93,6 +94,12 @@ class rdchiralReaction(object):
             _ = self.template_has_tetra_stereo
             _ = self.template_has_doublebond_stereo
             _ = self.template_is_chiral
+
+    @property
+    def rxn(self) -> rdChemReactions.ChemicalReaction:
+        if self._rxn is None:
+            self._rxn = initialize_rxn_from_smarts(self.reaction_smarts)
+        return self._rxn
 
     def _ensure_templates(self) -> None:
         """Ensure template fragments are initialized"""
@@ -350,15 +357,10 @@ class rdchiralReactants(object):
         self.reactant_smiles: str = reactant_smiles
         self.custom_mapping: bool = custom_reactant_mapping
 
-        # Initialize into RDKit mol
-        self.reactants: Chem.Mol = _initialize_reactants_from_smiles(reactant_smiles)
+        self.fast_reactants = Chem.MolFromSmiles(reactant_smiles)
 
+        self._reactants: Optional[Chem.Mol] = None
         self._n_atoms: Optional[int] = None
-        if not self.custom_mapping:
-            self._n_atoms = self.reactants.GetNumAtoms()
-            for idx in range(self._n_atoms):
-                self.reactants.GetAtomWithIdx(idx).SetAtomMapNum(idx + 1)
-
         self._n_bonds: Optional[int] = None
         self._atoms_r: Optional[Dict[int, Chem.Atom]] = None
         self._idx_to_map_num: Optional[Dict[int, int]] = None
@@ -373,6 +375,7 @@ class rdchiralReactants(object):
         self._reactants_is_chiral: Optional[bool] = None
 
         if not lazy_init:
+            _ = self.reactants
             self._ensure_atom_maps()
             _ = self.atoms_r
             _ = self.reactants_achiral
@@ -382,6 +385,20 @@ class rdchiralReactants(object):
             _ = self.reactants_has_tetra_stereo
             _ = self.reactants_has_doublebond_stereo
             _ = self.reactants_is_chiral
+
+    @property
+    def reactants(self) -> Chem.Mol:
+        if self._reactants is None:
+            reactants: Chem.Mol = _fully_initialize_reactants_from_mol(
+                self.fast_reactants
+            )
+            self._n_atoms = reactants.GetNumAtoms()
+            if not self.custom_mapping:
+                for idx in range(self._n_atoms):
+                    reactants.GetAtomWithIdx(idx).SetAtomMapNum(idx + 1)
+            self._reactants = reactants
+        assert self._reactants is not None
+        return self._reactants
 
     def _ensure_atom_maps(self) -> None:
         if self._atoms_r is not None and self._idx_to_map_num is not None:
@@ -551,18 +568,18 @@ def initialize_rxn_from_smarts(
     return rxn
 
 
-def _initialize_reactants_from_smiles(reactant_smiles: str) -> Chem.Mol:
+def _fully_initialize_reactants_from_mol(reactants: Chem.Mol) -> Chem.Mol:
     """
-    Initialize a reactant molecule from a SMILES string.
+    Fully initialize a reactant molecule.
 
     Args:
-        reactant_smiles (str): Reactant SMILES string.
+        reactants (Chem.Mol): Reactant molecule to initialize.
 
     Returns:
-        Chem.Mol: RDKit molecule with stereochemistry assigned and its property cache updated.
+        Chem.Mol: The same molecule instance, with stereochemistry assigned and its property
+            cache updated.
     """
     # Initialize reactants
-    reactants: Chem.Mol = Chem.MolFromSmiles(reactant_smiles)
     Chem.AssignStereochemistry(reactants, flagPossibleStereoCenters=True)
     reactants.UpdatePropertyCache(strict=False)
     return reactants
