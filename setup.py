@@ -14,7 +14,7 @@ for _path in sys.path:
 
 # Try to use mypyc compilation
 ext_modules = []
-use_mypyc = os.getenv("RDCHIRAL_USE_MYPYC", "1") == "1"
+use_mypyc = os.getenv("RDCHIRAL_USE_MYPYC", "0") == "1"
 
 if use_mypyc:
     try:
