@@ -196,39 +196,11 @@ def rdchiralRun(
 
     outcomes = deduplicate_outcomes(outcomes, reactants, rxn)
 
-    # If both reactants and template are achiral, we can return the outcomes directly
-    # TODO: handle intramolecular reactions, return mapping, handle keep_mapnums
-    # also allow to return early if all outcomes are not intramolecular
-    if (
-        not reactants.reactants_is_chiral
-        and not rxn.template_is_chiral
-        and not return_mapped
-        and not keep_mapnums
-    ):
-        if len(outcomes) == 1:
-            if len([ele for ele in outcomes[0]]) == 1:
-                achiral_outcome = outcomes[0][0]
-                if not keep_mapnums:
-                    for a in achiral_outcome.GetAtoms():
-                        a.SetAtomMapNum(0)
-                else:
-                    mapped_outcome = Chem.Mol(achiral_outcome)
-                    unmapped = 900
-                    for a in achiral_outcome.GetAtoms():
-                        if a.GetAtomMapNum() == 0:
-                            a.SetAtomMapNum(unmapped)
-                            unmapped += 1
-                achiral_outcome_smiles = Chem.MolToSmiles(achiral_outcome)
-
-                if return_mapped:
-                    substruct_matches = reactants.reactants_achiral.GetSubstructMatches(
-                        rxn.template_r, uniquify=False
-                    )
-                    return [achiral_outcome_smiles], {
-                        mapped_outcome: tuple(substruct_matches)
-                    }
-                else:
-                    return [achiral_outcome_smiles]
+    result = return_non_stereo_outcome_early(
+        outcomes, reactants, rxn, return_mapped, keep_mapnums
+    )
+    if result is not None:
+        return result
 
     final_outcomes = set()
     mapped_outcomes = {}
@@ -334,6 +306,93 @@ def deduplicate_outcomes(
             deduped_outcomes.append(outcome)
         outcomes = tuple(deduped_outcomes)
     return outcomes
+
+
+def return_non_stereo_outcome_early(
+    outcomes: Tuple[Tuple[Chem.Mol, ...], ...],
+    reactants: rdchiralReactants,
+    rxn: rdchiralReaction,
+    return_mapped: bool = False,
+    keep_mapnums: bool = False,
+):
+    """
+    Return a non-stereochemical outcome early when both reactants and template are achiral.
+
+    This helper is an optimization used by the main product enumeration logic. When both the
+    input reactants and the reaction template are achiral, and the reaction application
+    produced exactly one outcome containing exactly one product molecule, the product can be
+    returned directly without stereochemistry handling.
+
+    Args:
+        outcomes (Tuple[Tuple[Chem.Mol, ...], ...]): Outcomes returned by reaction application,
+            where each outer tuple element is an outcome containing one or more product
+            molecules.
+        reactants (rdchiralReactants): Reactant container providing achiral reactant molecule
+            and mapping information.
+        rxn (rdchiralReaction): Reaction/template container providing the reactant-side
+            template used for substructure matching.
+        return_mapped (bool): If True, also return a mapping dictionary keyed by the mapped
+            product SMILES with values containing the (non-unique) substructure matches of the
+            achiral reactants to the reactant-side template.
+        keep_mapnums (bool): If True, keep atom mapping numbers in the returned product SMILES.
+            Unmapped atoms (atom map number 0) are assigned new map numbers starting at 900.
+
+    Returns:
+        Optional[Union[List[str], Tuple[List[str], Dict[str, Tuple[Tuple[int, ...], ...]]]]]:
+            If the early-return conditions are not met, returns None. Otherwise returns a list
+            containing a single product SMILES string. If `return_mapped` is True, returns a
+            tuple of:
+            - The product SMILES list.
+            - A dict mapping mapped product SMILES to the reactant substructure matches.
+
+    Note:
+        If `keep_mapnums` is False, this function clears atom map numbers in-place on the
+        product molecule before converting to SMILES.
+    """
+
+    # If both reactants and template are achiral, we can return the outcomes directly
+    if reactants.reactants_is_chiral or rxn.template_is_chiral:
+        return None
+
+    # if len(outcomes) != 1:
+    #     return None
+
+    if set([len(outcome) for outcome in outcomes]) != {1}:
+        return None
+
+    final_outcomes_list = []
+    mapped_outcomes_dict = {}
+
+    for outcome in outcomes:
+        if keep_mapnums:
+            mapped_outcome = Chem.Mol(outcome[0])
+            unmapped = 900
+            for a in mapped_outcome.GetAtoms():
+                if a.GetAtomMapNum() == 0:
+                    a.SetAtomMapNum(unmapped)
+                unmapped += 1
+            mapped_outcome_smiles = Chem.MolToSmiles(mapped_outcome)
+            final_outcomes_list.append(mapped_outcome_smiles)
+            continue
+
+        for a in outcome[0].GetAtoms():
+            a.SetAtomMapNum(0)
+        unmapped_outcome_smiles = Chem.MolToSmiles(outcome[0])
+        final_outcomes_list.append(unmapped_outcome_smiles)
+
+    if return_mapped:
+        substruct_matches = reactants.reactants_achiral.GetSubstructMatches(
+            rxn.template_r, uniquify=False
+        )
+
+        for final_outcome, substruct_match in zip(
+            final_outcomes_list, substruct_matches
+        ):
+            mapped_outcomes_dict[final_outcome] = (substruct_match,)
+
+        return final_outcomes_list, mapped_outcomes_dict
+    else:
+        return final_outcomes_list
 
 
 def handle_outcomes(

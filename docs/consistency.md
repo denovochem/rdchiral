@@ -1,6 +1,6 @@
 # Consistency with original rdchiral
 
-This page describes how we measure consistency with upstream `rdchiral`, and summarizes the results.
+This page describes how we measure consistency with the original rdchiral library, and summarizes the results.
 
 ## Methodology
 

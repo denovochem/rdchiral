@@ -9,11 +9,6 @@ from rdkit.Chem.rdchem import ChiralType
 
 from rdchiral.utils import atoms_are_different
 
-USE_STEREOCHEMISTRY = True
-MAXIMUM_NUMBER_UNMAPPED_PRODUCT_ATOMS = 5
-INCLUDE_ALL_UNMAPPED_REACTANT_ATOMS = True
-
-
 _SPECIAL_GROUP_TEMPLATES: List[Tuple[List[int], Chem.Mol]] = []
 
 
@@ -543,7 +538,9 @@ def reassign_atom_mapping(transform: str) -> str:
     return transform_newmaps
 
 
-def get_strict_smarts_for_atom(atom: Chem.Atom) -> str:
+def get_strict_smarts_for_atom(
+    atom: Chem.Atom, use_stereochemistry: bool = True
+) -> str:
     """
     For an RDkit atom object, generate a SMARTS pattern that
     matches the atom as strictly as possible
@@ -557,7 +554,7 @@ def get_strict_smarts_for_atom(atom: Chem.Atom) -> str:
         symbol = "[" + symbol + "]"
 
     # Explicit stereochemistry - *before* H
-    if USE_STEREOCHEMISTRY:
+    if use_stereochemistry:
         if atom.GetChiralTag() != Chem.rdchem.ChiralType.CHI_UNSPECIFIED:
             if "@" not in symbol:
                 # Be explicit when there is a tetrahedral chiral tag
@@ -622,6 +619,8 @@ def get_fragments_for_changed_atoms(
     category: str = "reactants",
     expansion: Optional[List[str]] = None,
     no_special_groups: bool = False,
+    include_all_unmapped_reactant_atoms: bool = True,
+    use_stereochemistry: bool = True,
 ) -> Tuple[str, bool, bool]:
     """Given a list of RDKit mols and a list of changed atom tags, this function
     computes the SMILES string of molecular fragments using MolFragmentToSmiles
@@ -652,13 +651,13 @@ def get_fragments_for_changed_atoms(
             if ":" in atom.GetSmarts():
                 if atom.GetSmarts().split(":")[1][:-1] in changed_atom_tags:
                     atoms_to_use.append(atom.GetIdx())
-                    symbol = get_strict_smarts_for_atom(atom)
+                    symbol = get_strict_smarts_for_atom(atom, use_stereochemistry)
                     if symbol != atom.GetSmarts():
                         symbol_replacements.append((atom.GetIdx(), symbol))
                     continue
 
         # Fully define leaving groups and this molecule participates?
-        if INCLUDE_ALL_UNMAPPED_REACTANT_ATOMS and len(atoms_to_use) > 0:
+        if include_all_unmapped_reactant_atoms and len(atoms_to_use) > 0:
             if category == "reactants":
                 for atom in mol.GetAtoms():
                     if not atom.GetAtomMapNum():
@@ -691,7 +690,7 @@ def get_fragments_for_changed_atoms(
             for atom in mol.GetAtoms():
                 if not atom.GetAtomMapNum():
                     atoms_to_use.append(atom.GetIdx())
-                    symbol = get_strict_smarts_for_atom(atom)
+                    symbol = get_strict_smarts_for_atom(atom, use_stereochemistry)
                     symbol_replacements.append((atom.GetIdx(), symbol))
 
         if not atoms_to_use:
@@ -725,7 +724,7 @@ def get_fragments_for_changed_atoms(
                 atoms_to_use,
                 atomSymbols=symbols,
                 allHsExplicit=True,
-                isomericSmiles=USE_STEREOCHEMISTRY,
+                isomericSmiles=use_stereochemistry,
                 allBondsExplicit=True,
             )
 
@@ -854,7 +853,12 @@ def canonicalize_template(template: str) -> str:
 
 
 def extract_from_reaction(
-    reaction: Dict[str, Any], no_special_groups: bool = False, radius: int = 1
+    reaction: Dict[str, Any],
+    no_special_groups: bool = False,
+    radius: int = 1,
+    use_stereochemistry: bool = True,
+    maximum_number_unmapped_product_atoms: int = 5,
+    include_all_unmapped_reactant_atoms: bool = True,
 ) -> Dict[str, Any]:
     reactants = mols_from_smiles_list(
         replace_deuterated(reaction["reactants"]).split(".")
@@ -884,7 +888,7 @@ def extract_from_reaction(
             else:
                 num_unmapped_product_atoms += 1
                 unmapped_ids.append(atom.GetIdx())
-                if num_unmapped_product_atoms > MAXIMUM_NUMBER_UNMAPPED_PRODUCT_ATOMS:
+                if num_unmapped_product_atoms > maximum_number_unmapped_product_atoms:
                     # Skip this example - too many unmapped product atoms!
                     return {"reaction_id": reaction["_id"]}
         if num_mapped_atoms < len(prod_atoms):
@@ -933,7 +937,7 @@ def extract_from_reaction(
                         product,
                         unmapped_ids,
                         allHsExplicit=False,
-                        isomericSmiles=USE_STEREOCHEMISTRY,
+                        isomericSmiles=use_stereochemistry,
                         atomSymbols=atom_symbols,
                         bondSymbols=bond_symbols,
                     )
@@ -963,6 +967,7 @@ def extract_from_reaction(
             expansion=[],
             category="reactants",
             no_special_groups=no_special_groups,
+            include_all_unmapped_reactant_atoms=include_all_unmapped_reactant_atoms,
         )
         # Get fragments for products
         # (WITHOUT matching groups but WITH the addition of reactant fragments)
