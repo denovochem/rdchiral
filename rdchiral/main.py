@@ -349,13 +349,16 @@ def return_non_stereo_outcome_early(
         If `keep_mapnums` is False, this function clears atom map numbers in-place on the
         product molecule before converting to SMILES.
     """
-
-    # If both reactants and template are achiral, we can return the outcomes directly
     if reactants.reactants_is_chiral or rxn.template_is_chiral:
         return None
 
-    # if len(outcomes) != 1:
-    #     return None
+    # TODO: remove this guard
+    if len(outcomes) != 1:
+        return None
+
+    # TODO: remove this guard
+    if return_mapped or keep_mapnums:
+        return None
 
     if set([len(outcome) for outcome in outcomes]) != {1}:
         return None
