@@ -90,7 +90,7 @@ def rdchiralRunText(
     keep_mapnums: bool = False,
     combine_enantiomers: bool = True,
     return_mapped: bool = False,
-) -> Union[List[str], Tuple[List[str], Dict[str, Tuple[str, Tuple[int, ...]]]]]:
+) -> Any:
     """
     Run a reaction by constructing `rdchiralReaction` and `rdchiralReactants` from text inputs.
 
@@ -167,6 +167,20 @@ def rdchiralRun(
         numbers, and may mutate intermediate RDKit molecules produced by RDKit during
         post-processing.
     """
+    if not rxn.fast_reactant_smarts or not reactants.fast_reactants:
+        if return_mapped:
+            return [], {}
+        else:
+            return []
+
+    if not reactants.reactants_achiral.HasSubstructMatch(
+        rxn.fast_reactant_smarts, useChirality=False
+    ):
+        if return_mapped:
+            return [], {}
+        else:
+            return []
+
     if not skip_reset:
         rxn.reset()
 
@@ -182,39 +196,11 @@ def rdchiralRun(
 
     outcomes = deduplicate_outcomes(outcomes, reactants, rxn)
 
-    # If both reactants and template are achiral, we can return the outcomes directly
-    # TODO: handle intramolecular reactions, return mapping, handle keep_mapnums
-    # also allow to return early if all outcomes are not intramolecular
-    if (
-        not reactants.reactants_is_chiral
-        and not rxn.template_is_chiral
-        and not return_mapped
-        and not keep_mapnums
-    ):
-        if len(outcomes) == 1:
-            if len([ele for ele in outcomes[0]]) == 1:
-                achiral_outcome = outcomes[0][0]
-                if not keep_mapnums:
-                    for a in achiral_outcome.GetAtoms():
-                        a.SetAtomMapNum(0)
-                else:
-                    mapped_outcome = Chem.Mol(achiral_outcome)
-                    unmapped = 900
-                    for a in achiral_outcome.GetAtoms():
-                        if a.GetAtomMapNum() == 0:
-                            a.SetAtomMapNum(unmapped)
-                            unmapped += 1
-                achiral_outcome_smiles = Chem.MolToSmiles(achiral_outcome)
-
-                if return_mapped:
-                    substruct_matches = reactants.reactants_achiral.GetSubstructMatches(
-                        rxn.template_r, uniquify=False
-                    )
-                    return [achiral_outcome_smiles], {
-                        mapped_outcome: tuple(substruct_matches)
-                    }
-                else:
-                    return [achiral_outcome_smiles]
+    result = return_non_stereo_outcome_early(
+        outcomes, reactants, rxn, return_mapped, keep_mapnums
+    )
+    if result is not None:
+        return result
 
     final_outcomes = set()
     mapped_outcomes = {}
@@ -320,6 +306,98 @@ def deduplicate_outcomes(
             deduped_outcomes.append(outcome)
         outcomes = tuple(deduped_outcomes)
     return outcomes
+
+
+def return_non_stereo_outcome_early(
+    outcomes: Tuple[Tuple[Chem.Mol, ...], ...],
+    reactants: rdchiralReactants,
+    rxn: rdchiralReaction,
+    return_mapped: bool = False,
+    keep_mapnums: bool = False,
+) -> Optional[
+    Union[List[str], Tuple[List[str], Dict[str, Tuple[Tuple[int, ...], ...]]]]
+]:
+    """
+    Return a non-stereochemical outcome early when both reactants and template are achiral.
+
+    This helper is an optimization used by the main product enumeration logic. When both the
+    input reactants and the reaction template are achiral, and the reaction application
+    produced exactly one outcome containing exactly one product molecule, the product can be
+    returned directly without stereochemistry handling.
+
+    Args:
+        outcomes (Tuple[Tuple[Chem.Mol, ...], ...]): Outcomes returned by reaction application,
+            where each outer tuple element is an outcome containing one or more product
+            molecules.
+        reactants (rdchiralReactants): Reactant container providing achiral reactant molecule
+            and mapping information.
+        rxn (rdchiralReaction): Reaction/template container providing the reactant-side
+            template used for substructure matching.
+        return_mapped (bool): If True, also return a mapping dictionary keyed by the mapped
+            product SMILES with values containing the (non-unique) substructure matches of the
+            achiral reactants to the reactant-side template.
+        keep_mapnums (bool): If True, keep atom mapping numbers in the returned product SMILES.
+            Unmapped atoms (atom map number 0) are assigned new map numbers starting at 900.
+
+    Returns:
+        Optional[Union[List[str], Tuple[List[str], Dict[str, Tuple[Tuple[int, ...], ...]]]]]:
+            If the early-return conditions are not met, returns None. Otherwise returns a list
+            containing a single product SMILES string. If `return_mapped` is True, returns a
+            tuple of:
+            - The product SMILES list.
+            - A dict mapping mapped product SMILES to the reactant substructure matches.
+
+    Note:
+        If `keep_mapnums` is False, this function clears atom map numbers in-place on the
+        product molecule before converting to SMILES.
+    """
+    if reactants.reactants_is_chiral or rxn.template_is_chiral:
+        return None
+
+    # TODO: remove this guard
+    if len(outcomes) != 1:
+        return None
+
+    # TODO: remove this guard
+    if return_mapped or keep_mapnums:
+        return None
+
+    if set([len(outcome) for outcome in outcomes]) != {1}:
+        return None
+
+    final_outcomes_list: List[str] = []
+    mapped_outcomes_dict: Dict[str, Tuple[Tuple[int, ...], ...]] = {}
+
+    for outcome in outcomes:
+        if keep_mapnums:
+            mapped_outcome = Chem.Mol(outcome[0])
+            unmapped = 900
+            for a in mapped_outcome.GetAtoms():
+                if a.GetAtomMapNum() == 0:
+                    a.SetAtomMapNum(unmapped)
+                unmapped += 1
+            mapped_outcome_smiles = Chem.MolToSmiles(mapped_outcome)
+            final_outcomes_list.append(mapped_outcome_smiles)
+            continue
+
+        for a in outcome[0].GetAtoms():
+            a.SetAtomMapNum(0)
+        unmapped_outcome_smiles = Chem.MolToSmiles(outcome[0])
+        final_outcomes_list.append(unmapped_outcome_smiles)
+
+    if return_mapped:
+        substruct_matches = reactants.reactants_achiral.GetSubstructMatches(
+            rxn.template_r, uniquify=False
+        )
+
+        for final_outcome, substruct_match in zip(
+            final_outcomes_list, substruct_matches
+        ):
+            mapped_outcomes_dict[final_outcome] = (substruct_match,)
+
+        return final_outcomes_list, mapped_outcomes_dict
+    else:
+        return final_outcomes_list
 
 
 def handle_outcomes(
@@ -475,19 +553,22 @@ def assign_outcome_atom_mapnums(
             # Assign map number to outcome based on react_atom_idx
             if a.HasProp("react_atom_idx"):
                 mapnum = idx_to_mapnum(a.GetIntProp("react_atom_idx"))
+                if not mapnum:
+                    mapnum = unmapped
+                    unmapped += 1
                 a.SetAtomMapNum(mapnum)
             else:
                 mapnum = a.GetAtomMapNum()
-            if not mapnum:
-                mapnum = unmapped
-                a.SetAtomMapNum(mapnum)
-                unmapped += 1
+                if not mapnum:
+                    mapnum = unmapped
+                    a.SetAtomMapNum(mapnum)
+                    unmapped += 1
 
             # Define map num -> reactant template atom map
             if a.HasProp("old_mapno"):
                 old_mapno = a.GetIntProp("old_mapno")
-                if old_mapno in atoms_rt_map:
-                    rt_atom = atoms_rt_map[old_mapno]
+                rt_atom = atoms_rt_map.get(old_mapno)
+                if rt_atom is not None:
                     rt_atom.SetAtomMapNum(mapnum)
                     atoms_rt[mapnum] = rt_atom
 
@@ -645,23 +726,24 @@ def merge_outcomes_intramolecular(outcome: Tuple[Chem.Mol, ...]) -> Chem.Mol:
         for j in range(1, len(outcome)):
             new_mol = outcome[j]
             for a in new_mol.GetAtoms():
-                if a.GetAtomMapNum() not in merged_map_to_id:
-                    merged_map_to_id[a.GetAtomMapNum()] = merged_mol.AddAtom(a)
+                map_num = a.GetAtomMapNum()
+                if map_num not in merged_map_to_id:
+                    merged_map_to_id[map_num] = merged_mol.AddAtom(a)
             for b in new_mol.GetBonds():
                 bi = b.GetBeginAtom().GetAtomMapNum()
                 bj = b.GetEndAtom().GetAtomMapNum()
-                if not merged_mol.GetBondBetweenAtoms(
+                bi_bj_bond = merged_mol.GetBondBetweenAtoms(
                     merged_map_to_id[bi], merged_map_to_id[bj]
-                ):
+                )
+                if not bi_bj_bond:
                     merged_mol.AddBond(
                         merged_map_to_id[bi], merged_map_to_id[bj], b.GetBondType()
                     )
-                    merged_mol.GetBondBetweenAtoms(
+                    newly_added_bond = merged_mol.GetBondBetweenAtoms(
                         merged_map_to_id[bi], merged_map_to_id[bj]
-                    ).SetStereo(b.GetStereo())
-                    merged_mol.GetBondBetweenAtoms(
-                        merged_map_to_id[bi], merged_map_to_id[bj]
-                    ).SetBondDir(b.GetBondDir())
+                    )
+                    newly_added_bond.SetStereo(b.GetStereo())
+                    newly_added_bond.SetBondDir(b.GetBondDir())
         merged_outcome = merged_mol.GetMol()
     else:
         merged_outcome = outcome[0]
@@ -734,21 +816,26 @@ def check_missing_bonds(
     if missing_bonds:
         bonds_were_added = True
         outcome = Chem.RWMol(outcome)
-        rwmol_map_to_id = {
-            a.GetAtomMapNum(): a.GetIdx()
-            for a in outcome.GetAtoms()
-            if a.GetAtomMapNum()
-        }
+        rwmol_map_to_id = {}
+
+        for a in outcome.GetAtoms():
+            atom_map_num = a.GetAtomMapNum()
+            if atom_map_num:
+                rwmol_map_to_id[atom_map_num] = a.GetIdx()
+
         for i, j, b in missing_bonds:
             outcome.AddBond(rwmol_map_to_id[i], rwmol_map_to_id[j])
             new_b = outcome.GetBondBetweenAtoms(rwmol_map_to_id[i], rwmol_map_to_id[j])
             new_b.SetBondType(b.GetBondType())
             new_b.SetBondDir(b.GetBondDir())
             new_b.SetIsAromatic(b.GetIsAromatic())
+
         outcome = outcome.GetMol()
-        atoms_p = {
-            a.GetAtomMapNum(): a for a in outcome.GetAtoms() if a.GetAtomMapNum()
-        }
+
+        for a in outcome.GetAtoms():
+            atom_map_num = a.GetAtomMapNum()
+            if atom_map_num:
+                atoms_p[atom_map_num] = a
 
     return outcome, atoms_p, bonds_were_added
 

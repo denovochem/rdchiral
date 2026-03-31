@@ -8,12 +8,21 @@
 # rdchiral_plus
 Wrapper for RDKit's RunReactants to improve stereochemistry handling
 
-This repository is a fork of [rdchiral](https://github.com/connorcoley/rdchiral). It has been modified for improved performance, and is statically typed wherever possible so that it can be compiled with [mypyc](https://mypyc.readthedocs.io/en/latest/introduction.html) for faster execution while maintaining consistency with the upstream library. These modifications provide comparable speed to the fast C++ version ([rdchiral_cpp](https://gitlab.com/ljn917/rdchiral_cpp)), with all of the benefits of being written in Python. This library is pip installable and cross platform.
+This repository is a fork of [rdchiral](https://github.com/connorcoley/rdchiral). It has been modified for improved performance, and is statically typed wherever possible so that it can be optionally compiled with [mypyc](https://mypyc.readthedocs.io/en/latest/introduction.html) for faster execution while maintaining consistency with the upstream library. These modifications provide comparable speed to the fast C++ version ([rdchiral_cpp](https://gitlab.com/ljn917/rdchiral_cpp)), with all of the benefits of being written in Python. This library is pip installable and cross platform.
+
+
+This library has high consistency with the python rdchiral library, and can be used as a drop in replacement:
+
+- rdchiralRun (1000 templates applied to 1000 reactants): 99.98% consistent
+- rdchiralRunText (1000 templates applied to 100 reactants): 99.97% consistent
+- rdchiralExtract (templates extracted from 50,016 mapped reactions): 94.99% consistent
+
+See [here](docs/consistency.md) for details on how consistency is measured against the original library.
 
 ## Requirements
 
-* RDKit (version >= 2019)
-* Python (version >= 3.9)
+- RDKit (version >= 2019)
+- Python (version >= 3.10)
 
 ## Installation
 
@@ -29,10 +38,10 @@ Or install rdchiral_plus with pip directly from this repo:
 pip install git+https://github.com/denovochem/rdchiral_plus.git
 ```
 
-For the pure python (no mypyc compilation) version of rdchiral_plus:
+For mypyc compilation:
 
 ```bash
-RDCHIRAL_USE_MYPYC=0 pip install "git+https://github.com/denovochem/rdchiral_plus.git"
+RDCHIRAL_USE_MYPYC=1 pip install "git+https://github.com/denovochem/rdchiral_plus.git"
 ```
 
 
@@ -41,7 +50,8 @@ RDCHIRAL_USE_MYPYC=0 pip install "git+https://github.com/denovochem/rdchiral_plu
 from rdchiral import rdchiralRunText, rdchiralReaction, rdchiralReactants
 
 # Run directly from SMARTS and SMILES strings
-# This is slower than pre-initializing rdchiralReaction and rdchiralReactants when processing a large numbers of reactions
+# This is slower than pre-initializing rdchiralReaction and rdchiralReactants when
+# processing a large number of reactions
 reaction_smarts = '[C:1][OH:2]>>[C:1][O:2][C]'
 reactant_smiles = 'OCC(=O)OCCCO'
 outcomes = rdchiralRunText(reaction_smarts, reactant_smiles)

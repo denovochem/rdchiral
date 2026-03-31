@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=45", "wheel", "mypy>=1.14,<2", "rdkit", "numpy"]
+requires = ["setuptools>=45", "wheel", "mypy>=1.14,<2", "rdkit"]
 build-backend = "setuptools.build_meta"
  
 [project]
@@ -7,9 +7,10 @@ name = "rdchiral_plus"
 version = "0.2.0"
 description = "Wrapper for RDKit's RunReactants to improve stereochemistry handling"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "rdkit",
+    "loguru>=0.7.3",
 ]
 authors = [
     {name = "Connor Coley", email = "ccoley@mit.edu"},
@@ -42,7 +43,7 @@ manylinux-x86_64-image = "manylinux_2_28"
 manylinux-aarch64-image = "manylinux_2_28"
 
 [tool.cibuildwheel.environment]
-RDCHIRAL_USE_MYPYC = "1"
+RDCHIRAL_USE_MYPYC = "0"
 
 [dependency-groups]
 dev = [

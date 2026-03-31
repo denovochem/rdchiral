@@ -57,6 +57,8 @@
 !tests/integration/test_rdchiral.py
 !tests/integration/test_atom_mapping_cases.json
 !tests/integration/test_rdchiral_cases.json
+!tests/integration/test_extraction.py
+!tests/integration/test_extraction_cases.json
 
 !examples/
 !examples/example_notebook.ipynb
