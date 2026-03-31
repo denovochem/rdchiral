@@ -1,8 +1,8 @@
+import random
 import re
 from collections import Counter
 from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
-from numpy.random import shuffle
 from rdkit import Chem
 from rdkit.Chem import rdChemReactions, rdmolfiles
 from rdkit.Chem.rdchem import ChiralType
@@ -20,6 +20,9 @@ class ExtractedTemplate(TypedDict):
     reaction_id: str
     necessary_reagent: str
 
+
+RANDOM_SEED = 42
+random.seed(RANDOM_SEED)
 
 _SPECIAL_GROUP_TEMPLATES: List[Tuple[List[int], Chem.Mol]] = []
 
@@ -792,7 +795,7 @@ def get_fragments_for_changed_atoms(
                 this_fragment_mol, useChirality=True
             ):
                 all_matched_ids.extend(matched_ids)
-            shuffle(tetra_map_nums)
+            random.shuffle(tetra_map_nums)
             for tetra_map_num in tetra_map_nums:
                 if map_to_id[tetra_map_num] not in all_matched_ids:
                     tetra_consistent = False
@@ -809,6 +812,8 @@ def get_fragments_for_changed_atoms(
                     num_tetra_flips += 1
                     # IMPORTANT: only flip one at a time
                     break
+
+        # else: no mapped tetrahedral centers; fragment is considered consistent.
 
         if not tetra_consistent:
             raise ValueError(
