@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
  
 [project]
 name = "rdchiral_plus"
-version = "0.3.0"
+version = "0.3.1"
 description = "Wrapper for RDKit's RunReactants to improve stereochemistry handling"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -43,7 +43,7 @@ manylinux-x86_64-image = "manylinux_2_28"
 manylinux-aarch64-image = "manylinux_2_28"
 
 [tool.cibuildwheel.environment]
-RDCHIRAL_USE_MYPYC = "0"
+RDCHIRAL_USE_MYPYC = "1"
 
 [dependency-groups]
 dev = [
