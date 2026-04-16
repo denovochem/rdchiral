@@ -19,7 +19,7 @@ def _normalize_smiles_list(smiles_list):
         if m is None:
             raise ValueError(f"Invalid SMILES: {s!r}")
         normalized.append(Chem.MolToSmiles(m, isomericSmiles=True, canonical=True))
-    return normalized
+    return sorted(normalized)
 
 
 def _load_rdchiral_cases():
@@ -41,14 +41,15 @@ _RDCHIRAL_CASES = _load_rdchiral_cases()
 def test_rdchiral_case(test_case):
     reaction_smarts = test_case["smarts"]
     reactant_smiles = test_case["smiles"]
+    max_depth = test_case.get("max_depth", 1)
     expected = test_case["expected"]
     expected_norm = _normalize_smiles_list(expected)
 
-    outcomes_from_text = rdchiralRunText(reaction_smarts, reactant_smiles)
+    outcomes_from_text = rdchiralRunText(reaction_smarts, reactant_smiles, max_depth=3)
     assert _normalize_smiles_list(outcomes_from_text) == expected_norm
 
     rxn = rdchiralReaction(reaction_smarts)
     reactants = rdchiralReactants(reactant_smiles)
     for _ in range(3):
-        outcomes_from_init = rdchiralRun(rxn, reactants)
+        outcomes_from_init = rdchiralRun(rxn, reactants, max_depth=3)
         assert _normalize_smiles_list(outcomes_from_init) == expected_norm

@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "rdkit",
-    "loguru>=0.7.3",
+    "loguru",
 ]
 authors = [
     {name = "Connor Coley", email = "ccoley@mit.edu"},

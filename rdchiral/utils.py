@@ -1,5 +1,3 @@
-from __future__ import print_function
-
 from typing import List, Tuple
 
 from rdkit import Chem
@@ -172,3 +170,21 @@ def atoms_are_different(atom1: Chem.Atom, atom2: Chem.Atom) -> bool:
         return True
 
     return False
+
+
+def strip_map_numbers_from_smiles(smiles: str) -> str:
+    """
+    Remove atom map numbers from a SMILES string.
+
+    Args:
+        smiles (str): The SMILES string to strip map numbers from.
+
+    Returns:
+        str: The SMILES string with map numbers removed.
+    """
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        return smiles
+    for atom in mol.GetAtoms():
+        atom.SetAtomMapNum(0)
+    return Chem.MolToSmiles(mol)

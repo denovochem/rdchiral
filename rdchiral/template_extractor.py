@@ -17,8 +17,14 @@ class ExtractedTemplate(TypedDict):
     reaction_smarts: str
     intra_only: bool
     dimer_only: bool
-    reaction_id: str
+    reaction_id: str | int | None
     necessary_reagent: str
+
+
+class rdChiralTemplateExtractInput(TypedDict):
+    reactants: str
+    products: str
+    _id: str | int | None
 
 
 RANDOM_SEED = 42
@@ -881,7 +887,7 @@ def canonicalize_template(template: str) -> str:
 
 
 def extract_from_reaction(
-    reaction: Dict[str, Any],
+    reaction: rdChiralTemplateExtractInput,
     no_special_groups: bool = False,
     radius: int = 1,
     use_stereochemistry: bool = True,
@@ -1064,3 +1070,43 @@ def extract_from_reaction(
     }
 
     return template
+
+
+def extract_from_reaction_smiles(
+    rxn_smiles: str,
+    no_special_groups: bool = False,
+    radius: int = 1,
+    use_stereochemistry: bool = True,
+    maximum_number_unmapped_product_atoms: int = 5,
+    include_all_unmapped_reactant_atoms: bool = True,
+    reaction_id: Optional[str | int] = None,
+) -> ExtractedTemplate:
+    """
+    Extract a reaction template from a reaction SMILES string.
+
+    Args:
+        rxn_smiles: Reaction SMILES string in the format "reactants>>products"
+        reaction_id: Optional reaction ID
+
+    Returns:
+        ExtractedTemplate: The extracted template
+    """
+    if len(rxn_smiles.split(">>")) != 2:
+        raise ValueError("Reaction SMILES must contain exactly one >>")
+
+    reactants = rxn_smiles.split(">>")[0]
+    products = rxn_smiles.split(">>")[1]
+    reaction_dict: rdChiralTemplateExtractInput = {
+        "reactants": reactants,
+        "products": products,
+        "_id": reaction_id,
+    }
+
+    return extract_from_reaction(
+        reaction=reaction_dict,
+        no_special_groups=no_special_groups,
+        radius=radius,
+        use_stereochemistry=use_stereochemistry,
+        maximum_number_unmapped_product_atoms=maximum_number_unmapped_product_atoms,
+        include_all_unmapped_reactant_atoms=include_all_unmapped_reactant_atoms,
+    )

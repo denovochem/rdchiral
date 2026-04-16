@@ -1,5 +1,3 @@
-from __future__ import print_function
-
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import rdkit.Chem as Chem
@@ -19,7 +17,8 @@ from rdchiral.chiral import (
 )
 from rdchiral.clean import combine_enantiomers_into_racemic
 from rdchiral.initialization import rdchiralReactants, rdchiralReaction
-from rdchiral.utils import atoms_are_different
+from rdchiral.logging_config import logger
+from rdchiral.utils import atoms_are_different, strip_map_numbers_from_smiles
 
 """
 This file contains the main functions for running reactions. 
@@ -90,6 +89,8 @@ def rdchiralRunText(
     keep_mapnums: bool = False,
     combine_enantiomers: bool = True,
     return_mapped: bool = False,
+    max_depth: int = 1,
+    max_products: int = 100,
 ) -> Any:
     """
     Run a reaction by constructing `rdchiralReaction` and `rdchiralReactants` from text inputs.
@@ -103,6 +104,8 @@ def rdchiralRunText(
         combine_enantiomers (bool): If True, attempt to combine enantiomeric outcomes into
             racemic outcomes.
         return_mapped (bool): If True, also return per-outcome atom-mapped information.
+        max_depth (int): Maximum number of iterative depth levels to explore (default: 1).
+        max_products (int): Maximum number of products to return (default: 100).
 
     Returns:
         Union[List[str], Tuple[List[str], Dict[str, Tuple[str, Tuple[int, ...]]]]]:
@@ -125,10 +128,12 @@ def rdchiralRunText(
         combine_enantiomers=combine_enantiomers,
         return_mapped=return_mapped,
         skip_reset=True,
+        max_depth=max_depth,
+        max_products=max_products,
     )
 
 
-def rdchiralRun(
+def rdchiralStep(
     rxn: rdchiralReaction,
     reactants: rdchiralReactants,
     keep_mapnums: bool = False,
@@ -167,6 +172,15 @@ def rdchiralRun(
         numbers, and may mutate intermediate RDKit molecules produced by RDKit during
         post-processing.
     """
+    if "." in reactants.reactant_smiles:
+        logger.warning(
+            f"SMILES with multiple fragments are not currently supported: {reactants.reactant_smiles}"
+        )
+        if return_mapped:
+            return [], {}
+        else:
+            return []
+
     if not rxn.fast_reactant_smarts or not reactants.fast_reactants:
         if return_mapped:
             return [], {}
@@ -188,6 +202,7 @@ def rdchiralRun(
     outcomes: Tuple[Tuple[Chem.Mol, ...], ...] = rxn.rxn.RunReactants(
         (reactants.reactants_achiral,)
     )
+
     if not outcomes:
         if return_mapped:
             return [], {}
@@ -217,12 +232,178 @@ def rdchiralRun(
         mapped_outcomes[smiles_new] = mapped_info
 
     if combine_enantiomers:
-        final_outcomes = combine_enantiomers_into_racemic(final_outcomes)
+        final_outcomes, modified_smiles_dict = combine_enantiomers_into_racemic(
+            final_outcomes
+        )
 
     if return_mapped:
         return list(final_outcomes), mapped_outcomes
     else:
         return list(final_outcomes)
+
+
+def rdchiralRun(
+    rxn: rdchiralReaction,
+    reactants: rdchiralReactants,
+    keep_mapnums: bool = False,
+    combine_enantiomers: bool = True,
+    return_mapped: bool = False,
+    skip_reset: bool = False,
+    max_depth: int = 3,
+    max_products: int = 100,
+) -> Any:
+    """
+    Iteratively apply an rdchiral reaction template to reactants across multiple depth levels.
+
+    At each depth level, the products from the previous iteration are used as reactants
+    for the next iteration. This enables multi-step reaction prediction where products
+    can undergo further transformations defined by the same reaction template.
+
+    Args:
+        rxn (rdchiralReaction): The reaction template to apply.
+        reactants (rdchiralReactants): The initial reactants to start the iteration.
+        keep_mapnums (bool): If True, preserve atom map numbers in the output SMILES.
+        combine_enantiomers (bool): If True, combine enantiomeric products into racemic mixtures.
+        return_mapped (bool): If True, return a mapping between mapped and unmapped SMILES
+            along with atom change information.
+        skip_reset (bool): If True, skip resetting the reaction object state. Ignored if
+            max_depth > 1, as reset is forced for multi-depth iterations.
+        max_depth (int): Maximum number of iterative depth levels to explore (default: 1).
+        max_products (int): Maximum number of products to return (default: 100).
+
+    Returns:
+        Union[List[str], Tuple[List[str], Dict[str, Tuple[str, Tuple[int, ...]]]]]:
+            - If return_mapped is False: A list of product SMILES strings.
+            - If return_mapped is True: A tuple containing:
+                - List of product SMILES strings
+                - Dictionary mapping SMILES to a tuple of (mapped_smiles, flattened_changes)
+                  where flattened_changes contains all atom indices that changed across
+                  all depth levels.
+
+    Note:
+        When max_depth > 1, skip_reset is automatically set to False to ensure correct
+        reaction state between iterations. Products already seen at any depth are skipped
+        to avoid duplicate processing and infinite loops.
+    """
+    if max_depth == 1:
+        return rdchiralStep(
+            rxn=rxn,
+            reactants=reactants,
+            keep_mapnums=keep_mapnums,
+            combine_enantiomers=combine_enantiomers,
+            return_mapped=return_mapped,
+            skip_reset=skip_reset,
+        )
+
+    # if max_depth is going to be greater than 1, we should force reset rxn
+    skip_reset = False
+
+    custom_reactant_mapping = False
+    current_level: Dict[
+        str, Tuple[str, Optional[rdchiralReactants], List[Tuple[int, ...]]]
+    ] = {reactants.reactant_smiles: (reactants.reactant_smiles, reactants, [])}
+    all_products: Dict[str, Tuple[str, List[Tuple[int, ...]]]] = {}
+
+    num_products = 0
+    for _ in range(max_depth):
+        next_level: Dict[
+            str, Tuple[str, Optional[rdchiralReactants], List[Tuple[int, ...]]]
+        ] = {}
+
+        for parent_mapped, (
+            parent_unmapped,
+            reactant_obj,
+            parent_changes,
+        ) in current_level.items():
+            if reactant_obj is None:
+                reactant_obj = rdchiralReactants(
+                    parent_mapped, custom_reactant_mapping=custom_reactant_mapping
+                )
+            outcomes = rdchiralStep(
+                rxn,
+                reactant_obj,
+                keep_mapnums=True,
+                combine_enantiomers=False,
+                return_mapped=True,
+                skip_reset=skip_reset,
+            )
+            custom_reactant_mapping = True
+            if not outcomes or not outcomes[0]:
+                continue
+
+            products_list, products_dict = outcomes
+
+            # Process each product
+            for product_smiles_mapped in products_list:
+                if product_smiles_mapped in all_products:
+                    continue
+                num_products += 1
+
+                product_smiles_unmapped = strip_map_numbers_from_smiles(
+                    product_smiles_mapped
+                )
+
+                _, changed_atoms = products_dict[product_smiles_mapped]
+                accumulated_changes = parent_changes + [changed_atoms]
+
+                next_level[product_smiles_mapped] = (
+                    product_smiles_unmapped,
+                    None,
+                    accumulated_changes,
+                )
+                all_products[product_smiles_mapped] = (
+                    product_smiles_unmapped,
+                    accumulated_changes,
+                )
+
+            if num_products >= max_products:
+                break
+
+        if not next_level:
+            break
+
+        current_level = next_level
+
+    if not keep_mapnums:
+        final_smiles_list = list(
+            set([unmapped for unmapped, _ in all_products.values()])
+        )
+    else:
+        final_smiles_list = list(set([mapped for mapped in all_products.keys()]))
+
+    if combine_enantiomers:
+        final_smiles_set, modified_smiles_dict = combine_enantiomers_into_racemic(
+            set(final_smiles_list)
+        )
+        final_smiles_list = list(final_smiles_set)
+
+        ## This isnt right
+        # for mapped, (unmapped, changes) in all_products.items():
+        #     if keep_mapnums:
+        #         if mapped in modified_smiles_dict:
+        #             all_products[modified_smiles_dict[mapped]] = (modified_smiles_dict[mapped], changes)
+        #             del all_products[mapped]
+        #     else:
+        #         if unmapped in modified_smiles_dict:
+        #             all_products[modified_smiles_dict[unmapped]] = (modified_smiles_dict[unmapped], changes)
+        #             del all_products[unmapped]
+
+    if return_mapped:
+        if not keep_mapnums:
+            mapped_dict = {
+                unmapped: (mapped, tuple(x for t in changes for x in t))
+                for mapped, (unmapped, changes) in all_products.items()
+            }
+            return final_smiles_list, mapped_dict
+        else:
+            mapped_dict = {
+                mapped: (mapped, tuple(x for t in changes for x in t))
+                for mapped, (_, changes) in all_products.items()
+            }
+            return final_smiles_list, mapped_dict
+
+    else:
+        return final_smiles_list
 
 
 def deduplicate_outcomes_with_smiles(
@@ -511,6 +692,15 @@ def handle_outcomes(
 
     smiles_new = Chem.MolToSmiles(merged_outcome, isomericSmiles=True, canonical=True)
     if smiles_new is None:
+        return None, None
+
+    if len(Chem.DetectChemistryProblems(merged_outcome)) > 0:
+        # This is for a template like this:
+        # "[c;D3;+0:1]-[N;H0;D3;+1:2](-[O;H0;D1;-1])=[O;H0;D1;+0]>>[c;H1,H2;D3;+0:1]-[N;H2;D1;+0:2]"
+        # applied to TNT
+        logger.warning(
+            f"Potential problem detected: {Chem.DetectChemistryProblems(merged_outcome)}"
+        )
         return None, None
 
     return (smiles_new, (mapped_outcome, atoms_changed))

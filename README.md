@@ -8,16 +8,14 @@
 # rdchiral_plus
 Wrapper for RDKit's RunReactants to improve stereochemistry handling
 
-This repository is a fork of [rdchiral](https://github.com/connorcoley/rdchiral). It has been modified for improved performance, and is statically typed wherever possible so that it can be optionally compiled with [mypyc](https://mypyc.readthedocs.io/en/latest/introduction.html) for faster execution while maintaining consistency with the upstream library. These modifications provide comparable speed to the fast C++ version ([rdchiral_cpp](https://gitlab.com/ljn917/rdchiral_cpp)), with all of the benefits of being written in Python. This library is pip installable and cross platform.
+This repository is a fork of [rdchiral](https://github.com/connorcoley/rdchiral). It has been modified for improved performance, and is statically typed wherever possible so that it can be optionally compiled with [mypyc](https://mypyc.readthedocs.io/en/latest/introduction.html) for faster execution while maintaining consistency with the upstream library. These modifications provide comparable speed to the fast C++ version ([rdchiral_cpp](https://gitlab.com/ljn917/rdchiral_cpp)), with all of the benefits of being written in Python. This library is pip installable cross platform, and can be used as a drop-in replacement for the original rdchiral library.
 
-
-This library has high consistency with the python rdchiral library, and can be used as a drop in replacement:
-
+Consistency with the original library:
 - rdchiralRun (1000 templates applied to 1000 reactants): 99.98% consistent
 - rdchiralRunText (1000 templates applied to 100 reactants): 99.97% consistent
 - rdchiralExtract (templates extracted from 50,016 mapped reactions): 94.99% consistent
 
-See [here](docs/consistency.md) for details on how consistency is measured against the original library.
+See [here](docs/consistency.md) for details on how consistency is measured against the original library and full details of what changes you can expect compared to the original rdchiral library..
 
 ## Requirements
 
