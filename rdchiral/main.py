@@ -21,7 +21,7 @@ from rdchiral.logging_config import logger
 from rdchiral.utils import atoms_are_different, strip_map_numbers_from_smiles
 
 """
-This file contains the main functions for running reactions. 
+This file contains the main functions for running reactions.
 
 An incomplete description of expected behavior is as follows:
 
@@ -408,11 +408,33 @@ def rdchiralRun(
 
 
 def fix_return_mapped_dict_enantiomers(
-    all_products: Dict[str, Tuple[str, Tuple[Tuple[int, int, str], ...]]],
+    all_products: Dict[str, Tuple[str, List[Tuple[int, ...]]]],
     modified_smiles_dict: Dict[str, str],
     keep_mapnums: bool,
-) -> Dict[str, Tuple[str, Tuple[Tuple[int, int, str], ...]]]:
-    ## Fix the return_mapped dictionary to account for combination of enantiomers into racemics
+) -> Dict[str, Tuple[str, List[Tuple[int, ...]]]]:
+    """
+    Update the product mapping dictionary after collapsing enantiomers into racemics.
+
+    When `combine_enantiomers_into_racemic` replaces stereoisomeric SMILES with an
+    achiral/racemic equivalent, the keys in `all_products` must be remapped to reflect
+    the new SMILES while preserving the associated stereochemical change tuples.
+
+    Args:
+        all_products (Dict[str, Tuple[str, Tuple[Tuple[int, int, str], ...]]]):
+            Dictionary mapping a product SMILES to a tuple of (unmapped SMILES,
+            stereochemical changes). When `keep_mapnums` is True, the key is the
+            mapped SMILES; otherwise it is the unmapped SMILES.
+        modified_smiles_dict (Dict[str, str]): Mapping from original stereoisomeric
+            SMILES to the racemic/achiral SMILES that replaced them, as returned by
+            `combine_enantiomers_into_racemic`.
+        keep_mapnums (bool): If True, inspect the mapped (key) SMILES for replacements;
+            otherwise inspect the unmapped SMILES value.
+
+    Returns:
+        Dict[str, Tuple[str, Tuple[Tuple[int, int, str], ...]]]: The updated
+            `all_products` dictionary with old stereoisomer keys removed and replaced
+            by their corresponding racemic SMILES, preserving the change tuples.
+    """
     keys_to_delete = []
     keys_to_add = []
     for mapped, (unmapped, changes) in all_products.items():
@@ -707,11 +729,11 @@ def handle_outcomes(
             merged_outcome, atoms_rt, atoms_r, atoms_pt
         )
 
-        if validate_tetra_not_destroyed(merged_outcome, tetra_copied_from_reactants):
-            return None, None
-
     if reactants.reactants_has_doublebond_stereo or rxn.template_has_doublebond_stereo:
         merged_outcome = fix_double_bond_stereochemistry(merged_outcome, reactants, rxn)
+
+    if validate_tetra_not_destroyed(merged_outcome, tetra_copied_from_reactants):
+        return None, None
 
     if return_mapped:
         # Keep track of the reacting atoms for later use in grouping

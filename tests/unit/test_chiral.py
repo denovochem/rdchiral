@@ -148,3 +148,55 @@ def test_copy_chirality_inverts_when_atom_chirality_matches_returns_minus_one():
     assert a_new.GetChiralTag() != ChiralType.CHI_UNSPECIFIED
     assert a_src.GetChiralTag() != a_new.GetChiralTag()
     assert atom_chirality_matches(a_src, a_new) == 1
+
+
+def test_template_atom_could_have_been_tetra_sulfoxide_sulfur_degree_three_true():
+    a = _atom_from_smarts("[S:1](=[O:2])([C:3])[F:4]", 1)
+    assert (
+        template_atom_could_have_been_tetra(a, strip_if_spec=False, cache=True) is True
+    )
+    assert a.HasProp("tetra_possible")
+    assert a.GetBoolProp("tetra_possible") is True
+
+
+def test_copy_chirality_copies_sulfoxide_sulfur():
+    a_src = _atom_from_smiles("[S@:1](=[O:2])([C:3])[F:4]", 1)
+    a_new = _atom_from_smiles("[S:1](=[O:2])([C:3])[F:4]", 1)
+    assert a_new.GetChiralTag() == ChiralType.CHI_UNSPECIFIED
+    copy_chirality(a_src, a_new)
+    assert a_new.GetChiralTag() == a_src.GetChiralTag()
+
+
+def test_template_atom_could_have_been_tetra_phosphine_degree_three_true():
+    a = _atom_from_smarts("[P:1]([C:2])([C:3])[C:4]", 1)
+    assert (
+        template_atom_could_have_been_tetra(a, strip_if_spec=False, cache=True) is True
+    )
+    assert a.HasProp("tetra_possible")
+    assert a.GetBoolProp("tetra_possible") is True
+
+
+def test_template_atom_could_have_been_tetra_selenoxide_degree_three_true():
+    a = _atom_from_smarts("[Se:1](=[O:2])([C:3])[F:4]", 1)
+    assert (
+        template_atom_could_have_been_tetra(a, strip_if_spec=False, cache=True) is True
+    )
+    assert a.HasProp("tetra_possible")
+    assert a.GetBoolProp("tetra_possible") is True
+
+
+def test_copy_chirality_copies_phosphine():
+    a_src = _atom_from_smiles("[P:1]([C:2])([C:3])[C:4]", 1)
+    a_src.SetChiralTag(ChiralType.CHI_TETRAHEDRAL_CW)
+    a_new = _atom_from_smiles("[P:1]([C:2])([C:3])[C:4]", 1)
+    assert a_new.GetChiralTag() == ChiralType.CHI_UNSPECIFIED
+    copy_chirality(a_src, a_new)
+    assert a_new.GetChiralTag() == a_src.GetChiralTag()
+
+
+def test_copy_chirality_copies_selenoxide():
+    a_src = _atom_from_smiles("[Se@:1](=[O:2])([C:3])[F:4]", 1)
+    a_new = _atom_from_smiles("[Se:1](=[O:2])([C:3])[F:4]", 1)
+    assert a_new.GetChiralTag() == ChiralType.CHI_UNSPECIFIED
+    copy_chirality(a_src, a_new)
+    assert a_new.GetChiralTag() == a_src.GetChiralTag()

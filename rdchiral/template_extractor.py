@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
 from rdkit import Chem
 from rdkit.Chem import rdChemReactions, rdmolfiles
-from rdkit.Chem.rdchem import ChiralType
+from rdkit.Chem.rdchem import BondStereo, BondType, ChiralType
 
 from rdchiral.utils import atoms_are_different
 
@@ -167,14 +167,14 @@ def _invert_smarts_chirality_for_match(
     # only want to change unmapped token:
     tetrahedral_token = match.group(1)
     if ":" in tetrahedral_token and unmapped_only:
-        return tetrahedral_token
+        return str(tetrahedral_token)
 
     if "@@" in tetrahedral_token:
-        return tetrahedral_token.replace("@@", "@")
+        return str(tetrahedral_token.replace("@@", "@"))
     elif "@" in tetrahedral_token:
-        return tetrahedral_token.replace("@", "@@")
+        return str(tetrahedral_token.replace("@", "@@"))
     else:
-        return tetrahedral_token
+        return str(tetrahedral_token)
 
 
 def invert_chirality_around_unmapped_ring_closure(smarts: str) -> str:
@@ -182,7 +182,9 @@ def invert_chirality_around_unmapped_ring_closure(smarts: str) -> str:
     Return a smarts string with opposite chiral tags for atoms that precede a
     ring closure token
     """
-    return re.sub("(\[C@+H?\])(?=.?[1-9])", _invert_smarts_chirality_for_match, smarts)
+    return re.sub(
+        r"(\[C@+[^\]]*\])(?=.?[1-9])", _invert_smarts_chirality_for_match, smarts
+    )
 
 
 def mols_from_smiles_list(all_smiles: List[str]) -> List[Chem.Mol]:
@@ -264,7 +266,144 @@ def get_tetrahedral_atoms(
         ap = product_atom_tags.get(atom_tag)
         if ap is not None:
             tetrahedral_atoms.append((atom_tag, ar, ap))
+
     return tetrahedral_atoms
+
+
+def get_stereogenic_double_bonds(
+    reactants: List[Chem.Mol], products: List[Chem.Mol]
+) -> List[Tuple[int, int]]:
+    """
+    Find double bonds where stereochemistry is specified or changes.
+    Returns list of (map_num1, map_num2) tuples for stereo double bond atoms.
+    """
+    # Build map of atom map numbers to bonds in reactants
+    reactant_bonds: Dict[Tuple[int, int], BondStereo] = {}
+    for reactant in reactants:
+        for bond in reactant.GetBonds():
+            if bond.GetBondType() != BondType.DOUBLE:
+                continue
+
+            atom1_map = bond.GetBeginAtom().GetAtomMapNum()
+            atom2_map = bond.GetEndAtom().GetAtomMapNum()
+            if atom1_map and atom2_map:
+                key = tuple(sorted([atom1_map, atom2_map]))
+                reactant_bonds[key] = bond.GetStereo()
+
+    # Build map for products
+    product_bonds: Dict[Tuple[int, int], BondStereo] = {}
+    for product in products:
+        for bond in product.GetBonds():
+            if bond.GetBondType() != BondType.DOUBLE:
+                continue
+
+            atom1_map = bond.GetBeginAtom().GetAtomMapNum()
+            atom2_map = bond.GetEndAtom().GetAtomMapNum()
+            if atom1_map and atom2_map:
+                key = tuple(sorted([atom1_map, atom2_map]))
+                product_bonds[key] = bond.GetStereo()
+
+    # Find bonds that have stereochemistry that changes or is specified
+    stereogenic_bonds = []
+    all_keys = set(reactant_bonds.keys()) | set(product_bonds.keys())
+
+    for key in all_keys:
+        r_stereo = reactant_bonds.get(key, BondStereo.STEREONONE)
+        p_stereo = product_bonds.get(key, BondStereo.STEREONONE)
+
+        # If stereo is specified in either side and they differ, or if specified on one side but not the other
+        if (
+            r_stereo != BondStereo.STEREONONE or p_stereo != BondStereo.STEREONONE
+        ) and r_stereo != p_stereo:
+            stereogenic_bonds.append(key)
+
+    return stereogenic_bonds
+
+
+def ensure_complete_stereo_double_bonds(
+    mol: Chem.Mol,
+    atoms_to_use: List[int],
+    symbol_replacements: List[Tuple[int, str]],
+    use_stereochemistry: bool = True,
+) -> Tuple[List[int], List[Tuple[int, str]]]:
+    """
+    Ensures that for any stereogenic double bond in the fragment, all necessary
+    atoms (the bond atoms + one neighbor on each side) are included.
+    """
+    if not use_stereochemistry:
+        return atoms_to_use, symbol_replacements
+
+    # Use a set for efficient checking and a list to maintain order
+    atoms_to_use_set = set(atoms_to_use)
+
+    # Iterate through a copy of atoms_to_use to avoid issues with modification during loop
+    for atom_idx in list(atoms_to_use_set):
+        atom = mol.GetAtomWithIdx(atom_idx)
+        for bond in atom.GetBonds():
+            if (
+                bond.GetBondType() != BondType.DOUBLE
+                or bond.GetStereo() == BondStereo.STEREONONE
+            ):
+                continue
+
+            # This is a stereogenic double bond connected to our fragment
+            begin_idx = bond.GetBeginAtomIdx()
+            end_idx = bond.GetEndAtomIdx()
+
+            # 1. Ensure both atoms of the double bond are included
+            if begin_idx not in atoms_to_use_set:
+                atoms_to_use.append(begin_idx)
+                atoms_to_use_set.add(begin_idx)
+                symbol_replacements.append(
+                    (
+                        begin_idx,
+                        get_strict_smarts_for_atom(
+                            mol.GetAtomWithIdx(begin_idx), use_stereochemistry
+                        ),
+                    )
+                )
+            if end_idx not in atoms_to_use_set:
+                atoms_to_use.append(end_idx)
+                atoms_to_use_set.add(end_idx)
+                symbol_replacements.append(
+                    (
+                        end_idx,
+                        get_strict_smarts_for_atom(
+                            mol.GetAtomWithIdx(end_idx), use_stereochemistry
+                        ),
+                    )
+                )
+
+            # 2. Ensure each atom of the double bond has a neighbor in the fragment
+            for bond_atom_idx in [begin_idx, end_idx]:
+                other_bond_atom_idx = (
+                    end_idx if bond_atom_idx == begin_idx else begin_idx
+                )
+                bond_atom = mol.GetAtomWithIdx(bond_atom_idx)
+
+                has_neighbor_in_fragment = False
+                for neighbor in bond_atom.GetNeighbors():
+                    if (
+                        neighbor.GetIdx() != other_bond_atom_idx
+                        and neighbor.GetIdx() in atoms_to_use_set
+                    ):
+                        has_neighbor_in_fragment = True
+                        break
+
+                if not has_neighbor_in_fragment:
+                    # Add the first available neighbor as a wildcard
+                    for neighbor in bond_atom.GetNeighbors():
+                        if neighbor.GetIdx() != other_bond_atom_idx:
+                            neighbor_idx = neighbor.GetIdx()
+                            if neighbor_idx not in atoms_to_use_set:
+                                atoms_to_use.append(neighbor_idx)
+                                atoms_to_use_set.add(neighbor_idx)
+                                symbol_replacements.append(
+                                    (neighbor_idx, convert_atom_to_wildcard(neighbor))
+                                )
+                            break  # only need to add one
+
+    return atoms_to_use, symbol_replacements
 
 
 def get_frag_around_tetrahedral_center(mol: Chem.Mol, idx: int) -> str:
@@ -416,7 +555,7 @@ def get_changed_atoms(
                 continue
             else:
                 # Make sure chiral change is next to the reaction center and not
-                # a random specifidation (must be CONNECTED to a changed atom)
+                # a random specification (must be CONNECTED to a changed atom)
                 tetra_adj_to_rxn = False
                 for neighbor in ap.GetNeighbors():
                     neighbor_map_num = neighbor.GetAtomMapNum()
@@ -426,6 +565,18 @@ def get_changed_atoms(
                 if tetra_adj_to_rxn:
                     changed_atom_tags.append(atom_tag)
                     changed_atoms.append(ar)
+
+    # Atoms involved in double bonds where stereochemistry changes
+    stereo_double_bonds = get_stereogenic_double_bonds(reactants, products)
+    for bond_map_nums in stereo_double_bonds:
+        for map_num in bond_map_nums:
+            if map_num not in changed_tag_set:
+                # Find the atom with this map number in the reactants
+                atom_to_add = reac_atom_by_tag.get(map_num)
+                if atom_to_add:
+                    changed_atoms.append(atom_to_add)
+                    changed_atom_tags.append(map_num)
+                    changed_tag_set.add(map_num)
 
     return changed_atoms, changed_atom_tags, err
 
@@ -767,6 +918,14 @@ def get_fragments_for_changed_atoms(
                 groups=groups,
                 symbol_replacements=symbol_replacements,
             )
+
+        # After initial expansion, ensure stereo double bonds are complete
+        atoms_to_use, symbol_replacements = ensure_complete_stereo_double_bonds(
+            mol,
+            atoms_to_use,
+            symbol_replacements,
+            use_stereochemistry=use_stereochemistry,
+        )
 
         if category == "products":
             # Add extra labels to include (for products only)

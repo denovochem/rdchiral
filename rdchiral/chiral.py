@@ -6,30 +6,45 @@ from rdkit.Chem.rdchem import BondType, ChiralType
 
 from rdchiral.utils import parity4
 
+# Atomic numbers of elements that can be tetrahedral centers at degree 3
+# because a lone pair acts as the fourth substituent (e.g., sulfoxides, phosphines).
+_LONE_PAIR_STEREO_ATOMS: frozenset[int] = frozenset({15, 16, 33, 34, 51, 52, 83})
+
 
 def template_atom_could_have_been_tetra(
     a: Chem.Atom, strip_if_spec: bool = False, cache: bool = True
 ) -> bool:
     """
     Could this atom have been a tetrahedral center?
-    If yes, template atom is considered achiral and will not match a chiral rct
-    If no, the template atom is auxiliary and we should not use it to remove
-    a matched reaction. For example, a fully-generalized terminal [C:1]
+
+    If yes, the template atom is considered achiral and will not match a chiral
+    reactant. If no, the template atom is auxiliary and should not be used to
+    remove a matched reaction (e.g., a fully-generalized terminal [C:1]).
+
+    Atoms such as P, S, As, Se, Sb, Te, and Bi are treated as possible tetrahedral
+    centers even at degree 3 because a lone pair can serve as the fourth
+    substituent (e.g., phosphines, sulfoxides, selenoxides).
 
     Args:
-        a (rdkit.Chem.rdchem.Atom): RDKit atom
-        strip_if_spec (bool, optional): Defaults to False.
-        cache (bool, optional): Defaults to True.
+        a (rdkit.Chem.rdchem.Atom): RDKit atom.
+        strip_if_spec (bool, optional): If True, clear an improperly set chiral
+            tag when the atom cannot be tetrahedral. Defaults to False.
+        cache (bool, optional): If True, cache the result on the atom via the
+            ``tetra_possible`` property. Defaults to True.
 
     Returns:
-        bool: Returns True if this atom have been a tetrahedral center
+        bool: True if the atom could have been a tetrahedral center.
     """
 
     if a.HasProp("tetra_possible"):
         if a.GetBoolProp("tetra_possible"):
             return True
         return False
-    if a.GetDegree() < 3 or (a.GetDegree() == 3 and "H" not in a.GetSmarts()):
+    if a.GetDegree() < 3 or (
+        a.GetDegree() == 3
+        and "H" not in a.GetSmarts()
+        and a.GetAtomicNum() not in _LONE_PAIR_STEREO_ATOMS
+    ):
         if cache:
             a.SetBoolProp("tetra_possible", False)
         if strip_if_spec:  # Clear chiral tag in case improperly set
@@ -44,6 +59,9 @@ def copy_chirality(a_src: Chem.Atom, a_new: Chem.Atom) -> None:
     """
     Copy tetrahedral chirality from one atom to another, inverting if required.
 
+    Atoms such as P, S, As, Se, Sb, Te, and Bi are allowed to carry chirality
+    even at degree 3 because a lone pair can act as the fourth substituent.
+
     Args:
         a_src (rdkit.Chem.rdchem.Atom): Source RDKit atom whose chiral tag will be copied.
         a_new (rdkit.Chem.rdchem.Atom): Destination RDKit atom to receive the chiral tag.
@@ -57,7 +75,8 @@ def copy_chirality(a_src: Chem.Atom, a_new: Chem.Atom) -> None:
     if a_new.GetDegree() == 3 and any(
         b.GetBondType() != BondType.SINGLE for b in a_new.GetBonds()
     ):
-        return
+        if a_new.GetAtomicNum() not in _LONE_PAIR_STEREO_ATOMS:
+            return
 
     a_new.SetChiralTag(a_src.GetChiralTag())
 
