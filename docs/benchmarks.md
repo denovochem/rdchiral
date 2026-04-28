@@ -1,3 +1,5 @@
+<!-- cSpell:ignore mypyc -->
+
 # Benchmarks
 
 All benchmarks are performed on a fresh reboot of a Latitude 5540 with an Intel Core i5-1345U and 32GB of RAM from a Linux subsystem on Windows.
@@ -7,8 +9,8 @@ All benchmarks are performed on a fresh reboot of a Latitude 5540 with an Intel 
 The helper script `scripts/run_speed_benchmark_envs.py` builds and runs multiple environments:
 
 - `original`: upstream `rdchiral` installed from `git+https://github.com/connorcoley/rdchiral.git`.
-- `pure_python`: this fork installed normally (pure-Python mode).
-- `mypyc`: this fork installed with `RDCHIRAL_USE_MYPYC=1`.
+- `rdchiral_plus`: this fork installed normally (pure-Python mode).
+- `rdchiral_plus_mypyc`: this fork installed with `RDCHIRAL_USE_MYPYC=1`.
 - `cpp`: the `rdchiral_cpp` conda-forge package (run with `--cpp`).
 
 ## Metrics
@@ -35,7 +37,7 @@ python scripts/run_speed_benchmark_envs.py --reinstall
 
 Benchmarks are orchestrated by `scripts/run_speed_benchmark_envs.py`.
 
-- Each environment is installed into an isolated env (uv venvs for `orig`/`pure_python`/`mypyc`, and a conda prefix env for `cpp`).
+- Each environment is installed into an isolated env (uv venvs for `orig`/`rdchiral_plus`/`rdchiral_plus_mypyc`, and a conda prefix env for `cpp`).
 - The benchmark script is copied to a temporary directory and executed from there to avoid importing in-tree sources.
 - The runner sets `RDCHIRAL_REPO_ROOT` so the benchmark script can find the repository data files.
 
@@ -54,7 +56,7 @@ The script reports timings for:
 
 - Template initialization (building `rdchiralReaction` objects).
 - Reactant initialization (building `rdchiralReactants` objects).
-- Template application (`rdchiralRunText` and `rdchiralRun`).
+- Template application (`rdchiralRunText`, `rdchiralRun`, `rdchiralRun_keep_mapnums`, `rdchiralRun_return_mapped_keep_mapnums`).
 - Template extraction (`extract_from_reaction`).
 
 ## Benchmark 1: 1,000,000 template applications
@@ -64,8 +66,8 @@ This benchmark consists of applying 1000 templates to 1000 reactant SMILES for a
 | env | reactants_init | reactants_init_ratio | templates_init | templates_init_ratio | application | application_ratio |
 | --- | :---: | :---: | :---: | :---: | :---: | :---: |
 | orig | 0.560 (0.050) | 1.000 | 0.608 (0.035) | 1.000 | 118.250 (2.837) | 1.000 |
-| pure_python | 0.551 (0.077) | 1.016 | 0.739 (0.087) | 0.822 | 39.650 (0.169) | 2.982 |
-| mypyc | 0.589 (0.025) | 0.950 | 0.733 (0.014) | 0.829 | 38.847 (1.501) | 3.044 |
+| rdchiral_plus | 0.551 (0.077) | 1.016 | 0.739 (0.087) | 0.822 | 39.650 (0.169) | 2.982 |
+| rdchiral_plus_mypyc | 0.589 (0.025) | 0.950 | 0.733 (0.014) | 0.829 | 38.847 (1.501) | 3.044 |
 | cpp | 0.163 (0.033) | 3.429 | 0.064 (0.010) | 9.500 | 44.793 (1.593) | 2.640 |
 
 ### Notes

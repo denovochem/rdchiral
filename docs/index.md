@@ -1,7 +1,7 @@
 # rdchiral_plus
 Wrapper for RDKit's RunReactants to improve stereochemistry handling
 
-This repository is a fork of [rdchiral](https://github.com/connorcoley/rdchiral). It has been modified for improved performance, and is statically typed wherever possible so that it can be optionally compiled with [mypyc](https://mypyc.readthedocs.io/en/latest/introduction.html) for faster execution while maintaining consistency with the upstream library. These modifications provide comparable speed to the fast C++ version ([rdchiral_cpp](https://gitlab.com/ljn917/rdchiral_cpp)), with all of the benefits of being written in Python. This library is pip installable and cross platform.
+This repository is a fork of [rdchiral](https://github.com/connorcoley/rdchiral). It has been modified for improved performance while maintaining high consistency with the upstream library. These modifications provide speed that is marginally slower than the fast C++ version ([rdchiral_cpp](https://gitlab.com/ljn917/rdchiral_cpp)), but has the benefits of being written in Python. This library is pip installable cross platform.
 
 ## Requirements
 
@@ -22,12 +22,13 @@ Or install rdchiral_plus with pip directly from this repo:
 pip install git+https://github.com/denovochem/rdchiral_plus.git
 ```
 
+This fork can be optionally compiled with [mypyc](https://mypyc.readthedocs.io/en/latest/introduction.html). In our testing performance is not noticeably improved, as most of the computationally expensive work in this library is done with rdkit, which is already primarily written in C++.
+
 For mypyc compilation:
 
 ```bash
 RDCHIRAL_USE_MYPYC=1 pip install "git+https://github.com/denovochem/rdchiral_plus.git"
 ```
-
 
 ## Basic usage
 ```python
