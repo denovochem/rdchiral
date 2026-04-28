@@ -136,7 +136,7 @@ def rdchiralRunText(
     )
 
 
-def rdchiralStep(
+def rdchiral_step(
     rxn: rdchiralReaction,
     reactants: rdchiralReactants,
     keep_mapnums: bool = False,
@@ -211,7 +211,7 @@ def rdchiralStep(
     return list(final_outcomes)
 
 
-def rdchiralStep_return_mapped(
+def rdchiral_step_return_mapped(
     rxn: rdchiralReaction,
     reactants: rdchiralReactants,
     keep_mapnums: bool = False,
@@ -343,7 +343,7 @@ def rdchiralRun(
     """
     if max_depth == 1:
         if return_mapped:
-            return rdchiralStep_return_mapped(
+            return rdchiral_step_return_mapped(
                 rxn=rxn,
                 reactants=reactants,
                 keep_mapnums=keep_mapnums,
@@ -351,7 +351,7 @@ def rdchiralRun(
                 skip_reset=skip_reset,
             )
         else:
-            return rdchiralStep(
+            return rdchiral_step(
                 rxn=rxn,
                 reactants=reactants,
                 keep_mapnums=keep_mapnums,
@@ -383,7 +383,7 @@ def rdchiralRun(
                 reactant_obj = rdchiralReactants(
                     parent_mapped, custom_reactant_mapping=custom_reactant_mapping
                 )
-            products_list, products_dict = rdchiralStep_return_mapped(
+            products_list, products_dict = rdchiral_step_return_mapped(
                 rxn,
                 reactant_obj,
                 keep_mapnums=True,

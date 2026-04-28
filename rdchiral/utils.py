@@ -208,7 +208,7 @@ def atoms_are_different(
         check_local_stereo (bool): Whether to check for local tetrahedral stereochemical
             inversion using atom-map-number-canonicalized neighbor ordering.  Detects
             actual spatial inversion independent of CIP-label changes caused by remote
-            priority shifts.  Defaults to False.
+            priority shifts.  Defaults to True.
 
     Returns:
         bool: True if any checked property differs, otherwise False.

@@ -1,4 +1,3 @@
-import random
 import re
 from collections import Counter
 from typing import Any, Dict, List, Optional, Tuple, TypedDict
@@ -7,6 +6,7 @@ from rdkit import Chem
 from rdkit.Chem import rdChemReactions, rdmolfiles
 from rdkit.Chem.rdchem import BondStereo, BondType, ChiralType
 
+from rdchiral.chiral import atom_chirality_matches
 from rdchiral.utils import atoms_are_different
 
 
@@ -27,9 +27,6 @@ class rdChiralTemplateExtractInput(TypedDict):
     products: str
     _id: str | int | None
 
-
-RANDOM_SEED = 42
-random.seed(RANDOM_SEED)
 
 _SPECIAL_GROUP_TEMPLATES: List[Tuple[List[int], Chem.Mol]] = []
 
@@ -482,11 +479,6 @@ def check_tetrahedral_centers_equivalent(atom1: Chem.Atom, atom2: Chem.Atom) -> 
     return False
 
 
-def clear_isotope(mol: Chem.Mol) -> None:
-    for a in mol.GetAtoms():
-        a.SetIsotope(0)
-
-
 def get_changed_atoms(
     reactants: List[Chem.Mol], products: List[Chem.Mol]
 ) -> Tuple[List[Chem.Atom], List[int], int]:
@@ -532,7 +524,7 @@ def get_changed_atoms(
         if tag in changed_tag_set:
             continue
         if prod_tag_counts[tag] > 1 or atoms_are_different(
-            prod_atom, reac_atom, skip_smarts_check=True
+            prod_atom, reac_atom, skip_smarts_check=True, check_local_stereo=True
         ):
             changed_atoms.append(reac_atom)
             changed_atom_tags.append(tag)
@@ -961,117 +953,83 @@ def get_fragments_for_changed_atoms(
         for i, symbol in symbol_replacements:
             symbols[i] = symbol
 
-        mol_smi_with_maps = Chem.MolToSmiles(mol, True)
-        mol_from_smi_with_maps = Chem.MolFromSmiles(mol_smi_with_maps)
-        if mol_from_smi_with_maps is None:
-            raise ValueError("could not parse molecule SMILES")
-        mols_changed.append(
-            Chem.MolToSmiles(clear_mapnum(mol_from_smi_with_maps), True)
-        )
-
-        # Keep flipping stereocenters until we are happy...
-        # this is a sloppy fix during extraction to achieve consistency
-
-        tetra_consistent = False
-        num_tetra_flips = 0
         mol_without_map_nums = Chem.Mol(mol)
         for a in mol_without_map_nums.GetAtoms():
             a.SetAtomMapNum(0)
-        while not tetra_consistent and num_tetra_flips < 100:
-            mol_copy = Chem.Mol(mol_without_map_nums)
+
+        try:
+            this_fragment = rdmolfiles.MolFragmentToSmiles(
+                mol_without_map_nums,
+                atoms_to_use,
+                atomSymbols=symbols,
+                allHsExplicit=True,
+                isomericSmiles=use_stereochemistry,
+                allBondsExplicit=True,
+            )
+        except RuntimeError:
             try:
                 this_fragment = rdmolfiles.MolFragmentToSmiles(
-                    mol_copy,
+                    mol_without_map_nums,
                     atoms_to_use,
                     atomSymbols=symbols,
                     allHsExplicit=True,
-                    isomericSmiles=use_stereochemistry,
+                    isomericSmiles=False,
                     allBondsExplicit=True,
                 )
-            except RuntimeError:
-                try:
-                    this_fragment = rdmolfiles.MolFragmentToSmiles(
-                        mol_copy,
-                        atoms_to_use,
-                        atomSymbols=symbols,
-                        allHsExplicit=True,
-                        isomericSmiles=False,
-                        allBondsExplicit=True,
-                    )
-                except RuntimeError as e2:
-                    raise e2
+            except RuntimeError as e2:
+                raise e2
 
-            # Figure out what atom maps are tetrahedral centers
-            # Set isotopes to make sure we're getting the *exact* match we want
+        if use_stereochemistry:
             this_fragment_mol = rdmolfiles.MolFromSmarts(this_fragment)
-            if this_fragment_mol is None:
-                raise ValueError("could not parse fragment SMARTS")
-            tetra_map_nums = []
-            for atom in this_fragment_mol.GetAtoms():
-                atom_map_num = atom.GetAtomMapNum()
-                if atom_map_num:
-                    atom.SetIsotope(atom_map_num)
-                    if atom.GetChiralTag() != Chem.rdchem.ChiralType.CHI_UNSPECIFIED:
-                        tetra_map_nums.append(atom_map_num)
+            if this_fragment_mol is not None:
+                src_map = {
+                    a.GetAtomMapNum(): a for a in mol.GetAtoms() if a.GetAtomMapNum()
+                }
+                needs_correction = False
+                for frag_atom in this_fragment_mol.GetAtoms():
+                    mapnum = frag_atom.GetAtomMapNum()
+                    if not mapnum:
+                        continue
+                    if (
+                        frag_atom.GetChiralTag()
+                        == Chem.rdchem.ChiralType.CHI_UNSPECIFIED
+                    ):
+                        continue
+                    src_atom = src_map.get(mapnum)
+                    if (
+                        src_atom is None
+                        or src_atom.GetChiralTag()
+                        == Chem.rdchem.ChiralType.CHI_UNSPECIFIED
+                    ):
+                        continue
+                    if atom_chirality_matches(frag_atom, src_atom) == -1:
+                        src_idx = src_atom.GetIdx()
+                        prev = symbols[src_idx]
+                        if "@@" in prev:
+                            symbols[src_idx] = prev.replace("@@", "@")
+                        elif "@" in prev:
+                            symbols[src_idx] = prev.replace("@", "@@")
+                        needs_correction = True
 
-            # If there are no mapped tetrahedral stereocenters in the fragment,
-            # there is nothing to validate/flip via chirality-aware matching.
-            if not tetra_map_nums:
-                tetra_consistent = True
-                break
-            map_to_id = {}
-            for atom in mol.GetAtoms():
-                atom_map_num = atom.GetAtomMapNum()
-                if atom_map_num:
-                    atom.SetIsotope(atom_map_num)
-                    map_to_id[atom_map_num] = atom.GetIdx()
-                else:
-                    atom.SetIsotope(0)
-
-            # Look for matches
-            tetra_consistent = True
-            all_matched_ids = []
-
-            # skip substructure matching if there are a lot of fragments
-            # this can help prevent GetSubstructMatches from hanging
-            frag_smi = Chem.MolToSmiles(this_fragment_mol)
-            if frag_smi.count(".") > 5:
-                break
-
-            for matched_ids in mol.GetSubstructMatches(
-                this_fragment_mol, useChirality=True
-            ):
-                all_matched_ids.extend(matched_ids)
-            random.shuffle(tetra_map_nums)
-            for tetra_map_num in tetra_map_nums:
-                if map_to_id[tetra_map_num] not in all_matched_ids:
-                    tetra_consistent = False
-                    prevsymbol = symbols[map_to_id[tetra_map_num]]
-                    if "@@" in prevsymbol:
-                        symbol = prevsymbol.replace("@@", "@")
-                    elif "@" in prevsymbol:
-                        symbol = prevsymbol.replace("@", "@@")
-                    else:
-                        raise ValueError(
-                            "Need to modify symbol of tetra atom without @ or @@??"
+                if needs_correction:
+                    try:
+                        this_fragment = rdmolfiles.MolFragmentToSmiles(
+                            mol_without_map_nums,
+                            atoms_to_use,
+                            atomSymbols=symbols,
+                            allHsExplicit=True,
+                            isomericSmiles=use_stereochemistry,
+                            allBondsExplicit=True,
                         )
-                    symbols[map_to_id[tetra_map_num]] = symbol
-                    num_tetra_flips += 1
-                    # IMPORTANT: only flip one at a time
-                    break
-
-        # else: no mapped tetrahedral centers; fragment is considered consistent.
-
-        if not tetra_consistent:
-            raise ValueError(
-                "Could not find consistent tetrahedral mapping, {} centers".format(
-                    len(tetra_map_nums)
-                )
-            )
+                    except RuntimeError:
+                        pass
 
         fragments += "(" + this_fragment + ")."
 
     # auxiliary template information: is this an intramolecular reaction or dimerization?
+    mol_copy = Chem.Mol(mol)
+    mols_changed.append(Chem.MolToSmiles(clear_mapnum(mol_copy), True))
+
     intra_only = 1 == len(mols_changed)
     dimer_only = (1 == len(set(mols_changed))) and (len(mols_changed) == 2)
 
