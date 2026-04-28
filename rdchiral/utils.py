@@ -1,8 +1,7 @@
-from __future__ import print_function
-
 from typing import List, Tuple
 
 from rdkit import Chem
+from rdkit.Chem.rdchem import ChiralType
 
 
 def parity4(data: List[int]) -> int:
@@ -123,19 +122,102 @@ def bond_to_label(bond: Chem.Bond) -> str:
     return "{}{}{}".format(atoms[0], Chem.Bond.GetSmarts(bond), atoms[1])
 
 
-def atoms_are_different(atom1: Chem.Atom, atom2: Chem.Atom) -> bool:
-    """Return True if two RDKit atoms differ by selected atomic or local-environment properties.
+def has_local_stereo_changed(atom1: Chem.Atom, atom2: Chem.Atom) -> bool:
+    """
+    Check whether local tetrahedral stereochemistry differs between two atom-mapped atoms.
+
+    Uses atom-map numbers of each atom's neighbors as canonical identifiers so that
+    CW/CCW tags — which depend on the internal atom ordering of their owning
+    molecules — are compared in a consistent reference frame.  This distinguishes
+    actual stereochemical inversion from a mere CIP-label change caused by remote
+    priority shifts.
+
+    Args:
+        atom1 (Chem.Atom): First atom to compare (must have atom-mapped neighbors).
+        atom2 (Chem.Atom): Second atom to compare (must have atom-mapped neighbors).
+
+    Returns:
+        bool: True if the canonical local chirality differs between the two atoms,
+            including the case where exactly one atom is achiral.  Returns False when
+            both atoms are achiral, when either atom has a non-tetrahedral or
+            unrecognized chiral tag, or when any neighbor lacks an atom-map number.
+
+    Note:
+        This function assumes both atoms have the same set of neighbor atom-map
+        numbers (as guaranteed when called after bond-identity checks in
+        ``atoms_are_different``).  Implicit hydrogens on degree-3 stereocenters are
+        represented by a sentinel value of -1 in the neighbor-map list.
+    """
+    tag1 = atom1.GetChiralTag()
+    tag2 = atom2.GetChiralTag()
+
+    unspec = ChiralType.CHI_UNSPECIFIED
+    if tag1 == unspec and tag2 == unspec:
+        return False
+    if tag1 == unspec or tag2 == unspec:
+        return True
+
+    cw = ChiralType.CHI_TETRAHEDRAL_CW
+    ccw = ChiralType.CHI_TETRAHEDRAL_CCW
+    if (tag1 != cw and tag1 != ccw) or (tag2 != cw and tag2 != ccw):
+        return False
+
+    maps1: List[int] = []
+    for bond in atom1.GetBonds():
+        m = bond.GetOtherAtom(atom1).GetAtomMapNum()
+        if m == 0:
+            return False
+        maps1.append(m)
+
+    maps2: List[int] = []
+    for bond in atom2.GetBonds():
+        m = bond.GetOtherAtom(atom2).GetAtomMapNum()
+        if m == 0:
+            return False
+        maps2.append(m)
+
+    n1 = len(maps1)
+    n2 = len(maps2)
+    if n1 < 3 or n1 > 4 or n2 < 3 or n2 > 4:
+        return False
+
+    if n1 == 3:
+        maps1.append(-1)
+    if n2 == 3:
+        maps2.append(-1)
+
+    parity_matches = parity4(maps1) == parity4(maps2)
+    tag_matches = tag1 == tag2
+    return parity_matches != tag_matches
+
+
+def atoms_are_different(
+    atom1: Chem.Atom,
+    atom2: Chem.Atom,
+    skip_smarts_check: bool = False,
+    check_local_stereo: bool = True,
+) -> bool:
+    """
+    Return True if two RDKit atoms differ by selected atomic or local-environment properties.
 
     Args:
         atom1 (Chem.Atom): First atom to compare.
         atom2 (Chem.Atom): Second atom to compare.
+        skip_smarts_check (bool): Whether to skip the SMARTS check. Can be false positive for changed atoms, as the SMARTS
+            @ vs @@ may change based on atom ordering in the SMILES. Defaults to False.
+        check_local_stereo (bool): Whether to check for local tetrahedral stereochemical
+            inversion using atom-map-number-canonicalized neighbor ordering.  Detects
+            actual spatial inversion independent of CIP-label changes caused by remote
+            priority shifts.  Defaults to True.
 
     Returns:
         bool: True if any checked property differs, otherwise False.
     """
 
-    if atom1.GetSmarts() != atom2.GetSmarts():
-        return True  # should be very general
+    if not skip_smarts_check:
+        if atom1.GetSmarts() != atom2.GetSmarts():
+            return True  # should be very general
+
     if atom1.GetAtomicNum() != atom2.GetAtomicNum():
         return True  # must be true for atom mapping
     if atom1.GetTotalNumHs() != atom2.GetTotalNumHs():
@@ -171,4 +253,25 @@ def atoms_are_different(atom1: Chem.Atom, atom2: Chem.Atom) -> bool:
     if bonds1 != bonds2:
         return True
 
+    if check_local_stereo and has_local_stereo_changed(atom1, atom2):
+        return True
+
     return False
+
+
+def strip_map_numbers_from_smiles(smiles: str) -> str:
+    """
+    Remove atom map numbers from a SMILES string.
+
+    Args:
+        smiles (str): The SMILES string to strip map numbers from.
+
+    Returns:
+        str: The SMILES string with map numbers removed.
+    """
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        return smiles
+    for atom in mol.GetAtoms():
+        atom.SetAtomMapNum(0)
+    return Chem.MolToSmiles(mol)

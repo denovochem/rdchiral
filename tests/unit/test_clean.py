@@ -19,17 +19,19 @@ def test_canonicalize_outcome_smiles_sorts_fragments_after_rdkit_roundtrip():
 def test_combine_enantiomers_into_racemic_collapses_single_tetrahedral_center_pair():
     outcomes = {"C[C@H](O)F", "C[C@@H](O)F"}
 
-    result = combine_enantiomers_into_racemic(outcomes)
+    result, modified_smiles_dict = combine_enantiomers_into_racemic(outcomes)
 
     assert result is outcomes
     assert result == {"CC(O)F"}
+    assert modified_smiles_dict == {"C[C@H](O)F": "CC(O)F", "C[C@@H](O)F": "CC(O)F"}
 
 
 def test_combine_enantiomers_into_racemic_collapses_simple_alkene_slash_pair():
     outcomes = {"F/C=C/F", "F/C=C\\F"}
 
-    result = combine_enantiomers_into_racemic(outcomes)
+    result, modified_smiles_dict = combine_enantiomers_into_racemic(outcomes)
 
     assert result is outcomes
     assert len(result) == 1
     assert next(iter(result)) == canonicalize_outcome_smiles("FC=CF", ensure=True)
+    assert modified_smiles_dict == {"F/C=C/F": "FC=CF", "F/C=C\\F": "FC=CF"}

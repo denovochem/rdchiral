@@ -23,6 +23,8 @@
 !scripts/uspto_top_1k_templates.txt
 !scripts/uspto_50k_mapped_reactions.txt
 !scripts/analyze_consistency.py
+!scripts/roundtrip_check_script.py
+!scripts/run_roundtrip_check.py
 
 !docs/
 !docs/index.md

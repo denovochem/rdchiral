@@ -42,9 +42,19 @@ class rdchiralReaction(object):
 
     def __init__(self, reaction_smarts: str, lazy_init: bool = True):
         # Keep smarts, useful for reporting
+
+        split_reaction_smarts = reaction_smarts.split(">>")
+        # Treat as pseudo-intramolecular, so that reactions with multiple reacting centers can work
+        if "." in split_reaction_smarts[0]:
+            reaction_smarts = (
+                "(" + split_reaction_smarts[0] + ")>>(" + split_reaction_smarts[1] + ")"
+            )
+
         self.reaction_smarts: str = reaction_smarts
 
-        self.fast_reactant_smarts = Chem.MolFromSmarts(reaction_smarts.split(">>")[0])
+        self.fast_reactant_smarts: Chem.Mol = Chem.MolFromSmarts(
+            split_reaction_smarts[0]
+        )
 
         # Initialize lazily - assigns stereochemistry and fills in missing rct map numbers
         self._rxn: Optional[rdChemReactions.ChemicalReaction] = None

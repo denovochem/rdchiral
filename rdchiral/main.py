@@ -1,6 +1,4 @@
-from __future__ import print_function
-
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, TypeVar, Union
 
 import rdkit.Chem as Chem
 from rdkit.Chem import rdmolops
@@ -19,10 +17,14 @@ from rdchiral.chiral import (
 )
 from rdchiral.clean import combine_enantiomers_into_racemic
 from rdchiral.initialization import rdchiralReactants, rdchiralReaction
-from rdchiral.utils import atoms_are_different
+from rdchiral.logging_config import logger
+from rdchiral.utils import atoms_are_different, strip_map_numbers_from_smiles
+
+_ChangesT = TypeVar("_ChangesT")
+
 
 """
-This file contains the main functions for running reactions. 
+This file contains the main functions for running reactions.
 
 An incomplete description of expected behavior is as follows:
 
@@ -90,7 +92,9 @@ def rdchiralRunText(
     keep_mapnums: bool = False,
     combine_enantiomers: bool = True,
     return_mapped: bool = False,
-) -> Any:
+    max_depth: int = 1,
+    max_products: int = 100,
+) -> Union[List[str], Tuple[List[str], Dict[str, Tuple[str, Tuple[int, ...]]]]]:
     """
     Run a reaction by constructing `rdchiralReaction` and `rdchiralReactants` from text inputs.
 
@@ -103,6 +107,8 @@ def rdchiralRunText(
         combine_enantiomers (bool): If True, attempt to combine enantiomeric outcomes into
             racemic outcomes.
         return_mapped (bool): If True, also return per-outcome atom-mapped information.
+        max_depth (int): Maximum number of iterative depth levels to explore (default: 1).
+        max_products (int): Maximum number of products to return (default: 100).
 
     Returns:
         Union[List[str], Tuple[List[str], Dict[str, Tuple[str, Tuple[int, ...]]]]]:
@@ -125,17 +131,18 @@ def rdchiralRunText(
         combine_enantiomers=combine_enantiomers,
         return_mapped=return_mapped,
         skip_reset=True,
+        max_depth=max_depth,
+        max_products=max_products,
     )
 
 
-def rdchiralRun(
+def rdchiral_step(
     rxn: rdchiralReaction,
     reactants: rdchiralReactants,
     keep_mapnums: bool = False,
     combine_enantiomers: bool = True,
-    return_mapped: bool = False,
     skip_reset: bool = False,
-) -> Any:
+) -> List[str]:
     """
     Apply a pre-initialized `rdchiralReaction` template to pre-initialized reactants.
 
@@ -149,37 +156,29 @@ def rdchiralRun(
             product may be assigned new map numbers (implementation-dependent).
         combine_enantiomers (bool): If True, attempt to combine enantiomeric outcomes
             into racemic outcomes.
-        return_mapped (bool): If True, also return per-outcome atom-mapped information.
         skip_reset (bool): If True, skip resetting the reaction object before running.
 
     Returns:
-        Any:
-            - If `return_mapped` is False: A list of product SMILES strings.
-            - If `return_mapped` is True: A tuple of `(outcomes, mapped_outcomes)`.
-              `outcomes` is the list of product SMILES strings. `mapped_outcomes` maps
-              each product SMILES string to `(mapped_smiles, atoms_changed)`, where
-              `mapped_smiles` is the mapped SMILES for that product and
-              `atoms_changed` is a tuple of atom-map numbers whose corresponding atoms
-              differ between reactants and products.
+        List[str]: A list of product SMILES strings.
 
     Note:
         This function mutates `rxn` via `rxn.reset()` to restore template atom-map
         numbers, and may mutate intermediate RDKit molecules produced by RDKit during
         post-processing.
     """
+    if "." in reactants.reactant_smiles:
+        logger.warning(
+            f"SMILES with multiple fragments are not currently supported: {reactants.reactant_smiles}"
+        )
+        return []
+
     if not rxn.fast_reactant_smarts or not reactants.fast_reactants:
-        if return_mapped:
-            return [], {}
-        else:
-            return []
+        return []
 
     if not reactants.reactants_achiral.HasSubstructMatch(
         rxn.fast_reactant_smarts, useChirality=False
     ):
-        if return_mapped:
-            return [], {}
-        else:
-            return []
+        return []
 
     if not skip_reset:
         rxn.reset()
@@ -188,41 +187,337 @@ def rdchiralRun(
     outcomes: Tuple[Tuple[Chem.Mol, ...], ...] = rxn.rxn.RunReactants(
         (reactants.reactants_achiral,)
     )
+
     if not outcomes:
-        if return_mapped:
-            return [], {}
-        else:
-            return []
+        return []
 
     outcomes = deduplicate_outcomes(outcomes, reactants, rxn)
 
-    result = return_non_stereo_outcome_early(
-        outcomes, reactants, rxn, return_mapped, keep_mapnums
-    )
+    result = return_non_stereo_outcome_early(outcomes, reactants, rxn, keep_mapnums)
     if result is not None:
         return result
 
     final_outcomes = set()
-    mapped_outcomes = {}
     for outcome in outcomes:
-        smiles_new, mapped_info = handle_outcomes(
-            outcome, reactants, rxn, keep_mapnums, return_mapped
-        )
+        smiles_new, _ = handle_outcomes(outcome, reactants, rxn, keep_mapnums)
         if smiles_new is None:
             continue
-        if mapped_info is None:
+
+        final_outcomes.add(smiles_new)
+
+    if combine_enantiomers:
+        final_outcomes, _ = combine_enantiomers_into_racemic(final_outcomes)
+
+    return list(final_outcomes)
+
+
+def rdchiral_step_return_mapped(
+    rxn: rdchiralReaction,
+    reactants: rdchiralReactants,
+    keep_mapnums: bool = False,
+    combine_enantiomers: bool = True,
+    skip_reset: bool = False,
+) -> Tuple[List[str], Dict[str, Tuple[str, Tuple[int, ...]]]]:
+    """
+    Apply a pre-initialized `rdchiralReaction` template to pre-initialized reactants,
+    returning both product SMILES and per-outcome atom-mapping information.
+
+    Args:
+        rxn (rdchiralReaction): Reaction template wrapper, including an RDKit reaction
+            object and precomputed stereochemistry/atom-map bookkeeping.
+        reactants (rdchiralReactants): Reactants wrapper, including an RDKit molecule
+            and stereochemistry/atom-map bookkeeping.
+        keep_mapnums (bool): If False, clear atom-map numbers from returned product
+            SMILES. If True, preserve map numbers; atoms that are unmapped in the
+            product may be assigned new map numbers (implementation-dependent).
+        combine_enantiomers (bool): If True, attempt to combine enantiomeric outcomes
+            into racemic outcomes.
+        skip_reset (bool): If True, skip resetting the reaction object before running.
+
+    Returns:
+        Tuple[List[str], Dict[str, Tuple[str, Tuple[int, ...]]]]:
+            A tuple of `(outcomes, mapped_outcomes)`. `outcomes` is the list of product
+            SMILES strings. `mapped_outcomes` maps each product SMILES string to
+            `(mapped_smiles, atoms_changed)`, where `mapped_smiles` is the mapped SMILES
+            for that product and `atoms_changed` is a tuple of atom-map numbers whose
+            corresponding atoms differ between reactants and products.
+
+    Note:
+        This function mutates `rxn` via `rxn.reset()` to restore template atom-map
+        numbers, and may mutate intermediate RDKit molecules produced by RDKit during
+        post-processing.
+    """
+    if "." in reactants.reactant_smiles:
+        logger.warning(
+            f"SMILES with multiple fragments are not currently supported: {reactants.reactant_smiles}"
+        )
+        return ([], {})
+
+    if not rxn.fast_reactant_smarts or not reactants.fast_reactants:
+        return ([], {})
+
+    if not reactants.reactants_achiral.HasSubstructMatch(
+        rxn.fast_reactant_smarts, useChirality=False
+    ):
+        return ([], {})
+
+    if not skip_reset:
+        rxn.reset()
+
+    # Run naive RDKit on achiral version of molecules
+    outcomes: Tuple[Tuple[Chem.Mol, ...], ...] = rxn.rxn.RunReactants(
+        (reactants.reactants_achiral,)
+    )
+
+    if not outcomes:
+        return ([], {})
+
+    outcomes = deduplicate_outcomes(outcomes, reactants, rxn)
+
+    final_outcomes = set()
+    mapped_outcomes: Dict[str, Tuple[str, Tuple[int, ...]]] = {}
+    for outcome in outcomes:
+        smiles_new, mapped_info = handle_outcomes(outcome, reactants, rxn, keep_mapnums)
+        if smiles_new is None or mapped_info is None:
             continue
 
         final_outcomes.add(smiles_new)
         mapped_outcomes[smiles_new] = mapped_info
 
     if combine_enantiomers:
-        final_outcomes = combine_enantiomers_into_racemic(final_outcomes)
+        final_outcomes, modified_smiles_dict = combine_enantiomers_into_racemic(
+            final_outcomes
+        )
+
+        mapped_outcomes = fix_return_mapped_dict_enantiomers(
+            all_products=mapped_outcomes,
+            modified_smiles_dict=modified_smiles_dict,
+            keep_mapnums=keep_mapnums,
+        )
+
+    return (list(final_outcomes), mapped_outcomes)
+
+
+def rdchiralRun(
+    rxn: rdchiralReaction,
+    reactants: rdchiralReactants,
+    keep_mapnums: bool = False,
+    combine_enantiomers: bool = True,
+    return_mapped: bool = False,
+    skip_reset: bool = False,
+    max_depth: int = 1,
+    max_products: int = 100,
+) -> Union[List[str], Tuple[List[str], Dict[str, Tuple[str, Tuple[int, ...]]]]]:
+    """
+    Iteratively apply an rdchiral reaction template to reactants across multiple depth levels.
+
+    At each depth level, the products from the previous iteration are used as reactants
+    for the next iteration. This enables multi-step reaction prediction where products
+    can undergo further transformations defined by the same reaction template.
+
+    Args:
+        rxn (rdchiralReaction): The reaction template to apply.
+        reactants (rdchiralReactants): The initial reactants to start the iteration.
+        keep_mapnums (bool): If True, preserve atom map numbers in the output SMILES.
+        combine_enantiomers (bool): If True, combine enantiomeric products into racemic mixtures.
+        return_mapped (bool): If True, return a mapping between mapped and unmapped SMILES
+            along with atom change information.
+        skip_reset (bool): If True, skip resetting the reaction object state. Ignored if
+            max_depth > 1, as reset is forced for multi-depth iterations.
+        max_depth (int): Maximum number of iterative depth levels to explore (default: 1).
+        max_products (int): Maximum number of products to return (default: 100).
+
+    Returns:
+        Union[List[str], Tuple[List[str], Dict[str, Tuple[str, Tuple[int, ...]]]]]:
+            - If return_mapped is False: A list of product SMILES strings.
+            - If return_mapped is True: A tuple containing:
+                - List of product SMILES strings
+                - Dictionary mapping SMILES to a tuple of (mapped_smiles, flattened_changes)
+                  where flattened_changes contains all atom indices that changed across
+                  all depth levels.
+
+    Note:
+        When max_depth > 1, skip_reset is automatically set to False to ensure correct
+        reaction state between iterations. Products already seen at any depth are skipped
+        to avoid duplicate processing and infinite loops.
+    """
+    if max_depth == 1:
+        if return_mapped:
+            return rdchiral_step_return_mapped(
+                rxn=rxn,
+                reactants=reactants,
+                keep_mapnums=keep_mapnums,
+                combine_enantiomers=combine_enantiomers,
+                skip_reset=skip_reset,
+            )
+        else:
+            return rdchiral_step(
+                rxn=rxn,
+                reactants=reactants,
+                keep_mapnums=keep_mapnums,
+                combine_enantiomers=combine_enantiomers,
+                skip_reset=skip_reset,
+            )
+
+    # if max_depth is going to be greater than 1, we should force reset rxn
+    skip_reset = False
+
+    custom_reactant_mapping = False
+    current_level: Dict[
+        str, Tuple[str, Optional[rdchiralReactants], List[Tuple[int, ...]]]
+    ] = {reactants.reactant_smiles: (reactants.reactant_smiles, reactants, [])}
+    all_products: Dict[str, Tuple[str, List[Tuple[int, ...]]]] = {}
+
+    num_products = 0
+    for _ in range(max_depth):
+        next_level: Dict[
+            str, Tuple[str, Optional[rdchiralReactants], List[Tuple[int, ...]]]
+        ] = {}
+
+        for parent_mapped, (
+            parent_unmapped,
+            reactant_obj,
+            parent_changes,
+        ) in current_level.items():
+            if reactant_obj is None:
+                reactant_obj = rdchiralReactants(
+                    parent_mapped, custom_reactant_mapping=custom_reactant_mapping
+                )
+            products_list, products_dict = rdchiral_step_return_mapped(
+                rxn,
+                reactant_obj,
+                keep_mapnums=True,
+                combine_enantiomers=False,
+                skip_reset=skip_reset,
+            )
+            custom_reactant_mapping = True
+            if not products_list:
+                continue
+
+            # Process each product
+            for product_smiles_mapped in products_list:
+                if product_smiles_mapped in all_products:
+                    continue
+                num_products += 1
+
+                product_smiles_unmapped = strip_map_numbers_from_smiles(
+                    product_smiles_mapped
+                )
+
+                _, changed_atoms = products_dict[product_smiles_mapped]
+                accumulated_changes = parent_changes + [changed_atoms]
+
+                next_level[product_smiles_mapped] = (
+                    product_smiles_unmapped,
+                    None,
+                    accumulated_changes,
+                )
+                all_products[product_smiles_mapped] = (
+                    product_smiles_unmapped,
+                    accumulated_changes,
+                )
+
+            if num_products >= max_products:
+                break
+
+        if not next_level:
+            break
+
+        current_level = next_level
+
+    if not keep_mapnums:
+        final_smiles_list = list(
+            set([unmapped for unmapped, _ in all_products.values()])
+        )
+    else:
+        final_smiles_list = list(set([mapped for mapped in all_products.keys()]))
+
+    if combine_enantiomers:
+        final_smiles_set, modified_smiles_dict = combine_enantiomers_into_racemic(
+            set(final_smiles_list)
+        )
+        final_smiles_list = list(final_smiles_set)
+
+    all_products = fix_return_mapped_dict_enantiomers(
+        all_products=all_products,
+        modified_smiles_dict=modified_smiles_dict,
+        keep_mapnums=keep_mapnums,
+    )
 
     if return_mapped:
-        return list(final_outcomes), mapped_outcomes
+        if not keep_mapnums:
+            mapped_dict = {
+                unmapped: (mapped, tuple(x for t in changes for x in t))
+                for mapped, (unmapped, changes) in all_products.items()
+            }
+            return (final_smiles_list, mapped_dict)
+        else:
+            mapped_dict = {
+                mapped: (mapped, tuple(x for t in changes for x in t))
+                for mapped, (_, changes) in all_products.items()
+            }
+            return (final_smiles_list, mapped_dict)
+
     else:
-        return list(final_outcomes)
+        return final_smiles_list
+
+
+def fix_return_mapped_dict_enantiomers(
+    all_products: Dict[str, Tuple[str, _ChangesT]],
+    modified_smiles_dict: Dict[str, str],
+    keep_mapnums: bool,
+) -> Dict[str, Tuple[str, _ChangesT]]:
+    """
+    Update the product mapping dictionary after collapsing enantiomers into racemics.
+
+    When `combine_enantiomers_into_racemic` replaces stereoisomeric SMILES with an
+    achiral/racemic equivalent, the keys in `all_products` must be remapped to reflect
+    the new SMILES while preserving the associated stereochemical change tuples.
+
+    Args:
+        all_products (Dict[str, Tuple[str, _ChangesT]]):
+            Dictionary mapping a product SMILES to a tuple of (unmapped SMILES,
+            stereochemical changes). When `keep_mapnums` is True, the key is the
+            mapped SMILES; otherwise it is the unmapped SMILES.
+        modified_smiles_dict (Dict[str, str]): Mapping from original stereoisomeric
+            SMILES to the racemic/achiral SMILES that replaced them, as returned by
+            `combine_enantiomers_into_racemic`.
+        keep_mapnums (bool): If True, inspect the mapped (key) SMILES for replacements;
+            otherwise inspect the unmapped SMILES value.
+
+    Returns:
+        Dict[str, Tuple[str, _ChangesT]]: The updated `all_products` dictionary with
+            old stereoisomer keys removed and replaced by their corresponding racemic
+            SMILES, preserving the change tuples.
+    """
+    keys_to_delete: List[str] = []
+    keys_to_add: List[Tuple[str, Tuple[str, _ChangesT]]] = []
+    for mapped, (unmapped, changes) in all_products.items():
+        if keep_mapnums:
+            if mapped in modified_smiles_dict:
+                keys_to_add.append(
+                    (
+                        modified_smiles_dict[mapped],
+                        (modified_smiles_dict[mapped], changes),
+                    )
+                )
+                keys_to_delete.append(mapped)
+        else:
+            if unmapped in modified_smiles_dict:
+                keys_to_add.append(
+                    (
+                        modified_smiles_dict[unmapped],
+                        (modified_smiles_dict[unmapped], changes),
+                    )
+                )
+                keys_to_delete.append(mapped)
+
+    for key in keys_to_delete:
+        del all_products[key]
+    for key, value in keys_to_add:
+        all_products[key] = value
+
+    return all_products
 
 
 def deduplicate_outcomes_with_smiles(
@@ -312,11 +607,8 @@ def return_non_stereo_outcome_early(
     outcomes: Tuple[Tuple[Chem.Mol, ...], ...],
     reactants: rdchiralReactants,
     rxn: rdchiralReaction,
-    return_mapped: bool = False,
     keep_mapnums: bool = False,
-) -> Optional[
-    Union[List[str], Tuple[List[str], Dict[str, Tuple[Tuple[int, ...], ...]]]]
-]:
+) -> Optional[List[str]]:
     """
     Return a non-stereochemical outcome early when both reactants and template are achiral.
 
@@ -333,19 +625,12 @@ def return_non_stereo_outcome_early(
             and mapping information.
         rxn (rdchiralReaction): Reaction/template container providing the reactant-side
             template used for substructure matching.
-        return_mapped (bool): If True, also return a mapping dictionary keyed by the mapped
-            product SMILES with values containing the (non-unique) substructure matches of the
-            achiral reactants to the reactant-side template.
         keep_mapnums (bool): If True, keep atom mapping numbers in the returned product SMILES.
             Unmapped atoms (atom map number 0) are assigned new map numbers starting at 900.
 
     Returns:
-        Optional[Union[List[str], Tuple[List[str], Dict[str, Tuple[Tuple[int, ...], ...]]]]]:
-            If the early-return conditions are not met, returns None. Otherwise returns a list
-            containing a single product SMILES string. If `return_mapped` is True, returns a
-            tuple of:
-            - The product SMILES list.
-            - A dict mapping mapped product SMILES to the reactant substructure matches.
+        Optional[List[str]]: If the early-return conditions are not met, returns None.
+            Otherwise returns a list containing a single product SMILES string.
 
     Note:
         If `keep_mapnums` is False, this function clears atom map numbers in-place on the
@@ -359,45 +644,21 @@ def return_non_stereo_outcome_early(
         return None
 
     # TODO: remove this guard
-    if return_mapped or keep_mapnums:
+    if keep_mapnums:
         return None
 
     if set([len(outcome) for outcome in outcomes]) != {1}:
         return None
 
     final_outcomes_list: List[str] = []
-    mapped_outcomes_dict: Dict[str, Tuple[Tuple[int, ...], ...]] = {}
 
     for outcome in outcomes:
-        if keep_mapnums:
-            mapped_outcome = Chem.Mol(outcome[0])
-            unmapped = 900
-            for a in mapped_outcome.GetAtoms():
-                if a.GetAtomMapNum() == 0:
-                    a.SetAtomMapNum(unmapped)
-                unmapped += 1
-            mapped_outcome_smiles = Chem.MolToSmiles(mapped_outcome)
-            final_outcomes_list.append(mapped_outcome_smiles)
-            continue
-
         for a in outcome[0].GetAtoms():
             a.SetAtomMapNum(0)
         unmapped_outcome_smiles = Chem.MolToSmiles(outcome[0])
         final_outcomes_list.append(unmapped_outcome_smiles)
 
-    if return_mapped:
-        substruct_matches = reactants.reactants_achiral.GetSubstructMatches(
-            rxn.template_r, uniquify=False
-        )
-
-        for final_outcome, substruct_match in zip(
-            final_outcomes_list, substruct_matches
-        ):
-            mapped_outcomes_dict[final_outcome] = (substruct_match,)
-
-        return final_outcomes_list, mapped_outcomes_dict
-    else:
-        return final_outcomes_list
+    return final_outcomes_list
 
 
 def handle_outcomes(
@@ -405,8 +666,7 @@ def handle_outcomes(
     reactants: rdchiralReactants,
     rxn: rdchiralReaction,
     keep_mapnums: bool,
-    return_mapped: bool,
-) -> Union[Tuple[str, Tuple[Any, ...]], Tuple[None, None]]:
+) -> Union[Tuple[str, Tuple[str, Tuple[int, ...]]], Tuple[None, None]]:
     """
     Post-process a single raw RDKit reaction outcome into a final product SMILES.
 
@@ -424,18 +684,14 @@ def handle_outcomes(
             product templates and atom-map lookup tables.
         keep_mapnums (bool): If False, clear all atom-map numbers from the final
             product molecule before generating the returned SMILES.
-        return_mapped (bool): If True, also return a mapped SMILES for the final
-            product and the tuple of atom-map numbers that changed between reactants
-            and products.
 
     Returns:
-        Union[Tuple[str, Tuple[Any, ...]], Tuple[None, None]]:
+        Union[Tuple[str, Tuple[str, Tuple[int, ...]]], Tuple[None, None]]:
             - On success: A tuple of `(smiles_new, (mapped_outcome, atoms_changed))`.
               `smiles_new` is a canonical isomeric SMILES for the final product.
-              If `return_mapped` is True, `mapped_outcome` is the mapped SMILES for the
-              final product and `atoms_changed` is a tuple of atom-map numbers whose
-              corresponding atoms differ between reactants and products; otherwise both
-              values are None.
+              `mapped_outcome` is the mapped SMILES for the final product and
+              `atoms_changed` is a tuple of atom-map numbers whose corresponding atoms
+              differ between reactants and products.
             - On failure: `(None, None)` if the outcome is rejected by chiral/stereo
               validation, sanitization fails after connectivity repair, or SMILES
               generation fails.
@@ -489,21 +745,17 @@ def handle_outcomes(
             merged_outcome, atoms_rt, atoms_r, atoms_pt
         )
 
-        if validate_tetra_not_destroyed(merged_outcome, tetra_copied_from_reactants):
-            return None, None
-
     if reactants.reactants_has_doublebond_stereo or rxn.template_has_doublebond_stereo:
         merged_outcome = fix_double_bond_stereochemistry(merged_outcome, reactants, rxn)
 
-    if return_mapped:
-        # Keep track of the reacting atoms for later use in grouping
-        atoms_diff = {x: atoms_are_different(atoms_r[x], atoms_p[x]) for x in atoms_rt}
-        # make tuple of changed atoms
-        atoms_changed = tuple([x for x in atoms_diff.keys() if atoms_diff[x]])
-        mapped_outcome = Chem.MolToSmiles(merged_outcome, True)
-    else:
-        mapped_outcome = None
-        atoms_changed = None
+    if validate_tetra_not_destroyed(merged_outcome, tetra_copied_from_reactants):
+        return None, None
+
+    # Keep track of the reacting atoms for later use in grouping
+    atoms_diff = {x: atoms_are_different(atoms_r[x], atoms_p[x]) for x in atoms_rt}
+    # make tuple of changed atoms
+    atoms_changed = tuple([x for x in atoms_diff.keys() if atoms_diff[x]])
+    mapped_outcome = Chem.MolToSmiles(merged_outcome, True)
 
     if not keep_mapnums:
         for a in merged_outcome.GetAtoms():
@@ -511,6 +763,15 @@ def handle_outcomes(
 
     smiles_new = Chem.MolToSmiles(merged_outcome, isomericSmiles=True, canonical=True)
     if smiles_new is None:
+        return None, None
+
+    if len(Chem.DetectChemistryProblems(merged_outcome)) > 0:
+        # This is for a template like this:
+        # "[c;D3;+0:1]-[N;H0;D3;+1:2](-[O;H0;D1;-1])=[O;H0;D1;+0]>>[c;H1,H2;D3;+0:1]-[N;H2;D1;+0:2]"
+        # applied to TNT
+        logger.warning(
+            f"Potential problem detected: {Chem.DetectChemistryProblems(merged_outcome)}"
+        )
         return None, None
 
     return (smiles_new, (mapped_outcome, atoms_changed))

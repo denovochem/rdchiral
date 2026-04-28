@@ -1,12 +1,12 @@
-import random
 import re
 from collections import Counter
 from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
 from rdkit import Chem
 from rdkit.Chem import rdChemReactions, rdmolfiles
-from rdkit.Chem.rdchem import ChiralType
+from rdkit.Chem.rdchem import BondStereo, BondType, ChiralType
 
+from rdchiral.chiral import atom_chirality_matches
 from rdchiral.utils import atoms_are_different
 
 
@@ -15,14 +15,18 @@ class ExtractedTemplate(TypedDict):
     reactants: str
     spectators: str
     reaction_smarts: str
+    separated_reaction_smarts: List[str]
     intra_only: bool
     dimer_only: bool
-    reaction_id: str
+    reaction_id: str | int | None
     necessary_reagent: str
 
 
-RANDOM_SEED = 42
-random.seed(RANDOM_SEED)
+class rdChiralTemplateExtractInput(TypedDict):
+    reactants: str
+    products: str
+    _id: str | int | None
+
 
 _SPECIAL_GROUP_TEMPLATES: List[Tuple[List[int], Chem.Mol]] = []
 
@@ -149,6 +153,37 @@ def _initialize_special_group_templates() -> None:
 _initialize_special_group_templates()
 
 
+def _invert_smarts_chirality_for_match(
+    match: re.Match, unmapped_only: bool = True
+) -> str:
+    """
+    helper function for `invert_chirality_around_unmapped_ring_closure`
+    input is a re.match object that matches the portion of an atom token
+    where chirality is defined
+    """
+    # only want to change unmapped token:
+    tetrahedral_token = match.group(1)
+    if ":" in tetrahedral_token and unmapped_only:
+        return str(tetrahedral_token)
+
+    if "@@" in tetrahedral_token:
+        return str(tetrahedral_token.replace("@@", "@"))
+    elif "@" in tetrahedral_token:
+        return str(tetrahedral_token.replace("@", "@@"))
+    else:
+        return str(tetrahedral_token)
+
+
+def invert_chirality_around_unmapped_ring_closure(smarts: str) -> str:
+    """
+    Return a smarts string with opposite chiral tags for atoms that precede a
+    ring closure token
+    """
+    return re.sub(
+        r"(\[C@+[^\]]*\])(?=.?[1-9])", _invert_smarts_chirality_for_match, smarts
+    )
+
+
 def mols_from_smiles_list(all_smiles: List[str]) -> List[Chem.Mol]:
     """Given a list of smiles strings, this function creates rdkit
     molecules"""
@@ -228,7 +263,144 @@ def get_tetrahedral_atoms(
         ap = product_atom_tags.get(atom_tag)
         if ap is not None:
             tetrahedral_atoms.append((atom_tag, ar, ap))
+
     return tetrahedral_atoms
+
+
+def get_stereogenic_double_bonds(
+    reactants: List[Chem.Mol], products: List[Chem.Mol]
+) -> List[Tuple[int, int]]:
+    """
+    Find double bonds where stereochemistry is specified or changes.
+    Returns list of (map_num1, map_num2) tuples for stereo double bond atoms.
+    """
+    # Build map of atom map numbers to bonds in reactants
+    reactant_bonds: Dict[Tuple[int, int], BondStereo] = {}
+    for reactant in reactants:
+        for bond in reactant.GetBonds():
+            if bond.GetBondType() != BondType.DOUBLE:
+                continue
+
+            atom1_map = bond.GetBeginAtom().GetAtomMapNum()
+            atom2_map = bond.GetEndAtom().GetAtomMapNum()
+            if atom1_map and atom2_map:
+                key = tuple(sorted([atom1_map, atom2_map]))
+                reactant_bonds[key] = bond.GetStereo()
+
+    # Build map for products
+    product_bonds: Dict[Tuple[int, int], BondStereo] = {}
+    for product in products:
+        for bond in product.GetBonds():
+            if bond.GetBondType() != BondType.DOUBLE:
+                continue
+
+            atom1_map = bond.GetBeginAtom().GetAtomMapNum()
+            atom2_map = bond.GetEndAtom().GetAtomMapNum()
+            if atom1_map and atom2_map:
+                key = tuple(sorted([atom1_map, atom2_map]))
+                product_bonds[key] = bond.GetStereo()
+
+    # Find bonds that have stereochemistry that changes or is specified
+    stereogenic_bonds = []
+    all_keys = set(reactant_bonds.keys()) | set(product_bonds.keys())
+
+    for key in all_keys:
+        r_stereo = reactant_bonds.get(key, BondStereo.STEREONONE)
+        p_stereo = product_bonds.get(key, BondStereo.STEREONONE)
+
+        # If stereo is specified in either side and they differ, or if specified on one side but not the other
+        if (
+            r_stereo != BondStereo.STEREONONE or p_stereo != BondStereo.STEREONONE
+        ) and r_stereo != p_stereo:
+            stereogenic_bonds.append(key)
+
+    return stereogenic_bonds
+
+
+def ensure_complete_stereo_double_bonds(
+    mol: Chem.Mol,
+    atoms_to_use: List[int],
+    symbol_replacements: List[Tuple[int, str]],
+    use_stereochemistry: bool = True,
+) -> Tuple[List[int], List[Tuple[int, str]]]:
+    """
+    Ensures that for any stereogenic double bond in the fragment, all necessary
+    atoms (the bond atoms + one neighbor on each side) are included.
+    """
+    if not use_stereochemistry:
+        return atoms_to_use, symbol_replacements
+
+    # Use a set for efficient checking and a list to maintain order
+    atoms_to_use_set = set(atoms_to_use)
+
+    # Iterate through a copy of atoms_to_use to avoid issues with modification during loop
+    for atom_idx in list(atoms_to_use_set):
+        atom = mol.GetAtomWithIdx(atom_idx)
+        for bond in atom.GetBonds():
+            if (
+                bond.GetBondType() != BondType.DOUBLE
+                or bond.GetStereo() == BondStereo.STEREONONE
+            ):
+                continue
+
+            # This is a stereogenic double bond connected to our fragment
+            begin_idx = bond.GetBeginAtomIdx()
+            end_idx = bond.GetEndAtomIdx()
+
+            # 1. Ensure both atoms of the double bond are included
+            if begin_idx not in atoms_to_use_set:
+                atoms_to_use.append(begin_idx)
+                atoms_to_use_set.add(begin_idx)
+                symbol_replacements.append(
+                    (
+                        begin_idx,
+                        get_strict_smarts_for_atom(
+                            mol.GetAtomWithIdx(begin_idx), use_stereochemistry
+                        ),
+                    )
+                )
+            if end_idx not in atoms_to_use_set:
+                atoms_to_use.append(end_idx)
+                atoms_to_use_set.add(end_idx)
+                symbol_replacements.append(
+                    (
+                        end_idx,
+                        get_strict_smarts_for_atom(
+                            mol.GetAtomWithIdx(end_idx), use_stereochemistry
+                        ),
+                    )
+                )
+
+            # 2. Ensure each atom of the double bond has a neighbor in the fragment
+            for bond_atom_idx in [begin_idx, end_idx]:
+                other_bond_atom_idx = (
+                    end_idx if bond_atom_idx == begin_idx else begin_idx
+                )
+                bond_atom = mol.GetAtomWithIdx(bond_atom_idx)
+
+                has_neighbor_in_fragment = False
+                for neighbor in bond_atom.GetNeighbors():
+                    if (
+                        neighbor.GetIdx() != other_bond_atom_idx
+                        and neighbor.GetIdx() in atoms_to_use_set
+                    ):
+                        has_neighbor_in_fragment = True
+                        break
+
+                if not has_neighbor_in_fragment:
+                    # Add the first available neighbor as a wildcard
+                    for neighbor in bond_atom.GetNeighbors():
+                        if neighbor.GetIdx() != other_bond_atom_idx:
+                            neighbor_idx = neighbor.GetIdx()
+                            if neighbor_idx not in atoms_to_use_set:
+                                atoms_to_use.append(neighbor_idx)
+                                atoms_to_use_set.add(neighbor_idx)
+                                symbol_replacements.append(
+                                    (neighbor_idx, convert_atom_to_wildcard(neighbor))
+                                )
+                            break  # only need to add one
+
+    return atoms_to_use, symbol_replacements
 
 
 def get_frag_around_tetrahedral_center(mol: Chem.Mol, idx: int) -> str:
@@ -237,12 +409,47 @@ def get_frag_around_tetrahedral_center(mol: Chem.Mol, idx: int) -> str:
     ids_to_include: List[int] = [idx]
     for neighbor in mol.GetAtomWithIdx(idx).GetNeighbors():
         ids_to_include.append(neighbor.GetIdx())
-    symbols: List[str] = [
-        "[{}{}]".format(a.GetIsotope(), a.GetSymbol())
-        if a.GetIsotope() != 0
-        else "[#{}]".format(a.GetAtomicNum())
-        for a in mol.GetAtoms()
-    ]
+
+    # Get an initial smiles string for the fragment of the molecule --
+    # This string is used to get the correct chirality for the final, more general
+    # returned fragment.
+    # Likely a better way to do this, but chiral tags seem to be cleaned
+    # by rdkit when obtained from a mol vs. from each atom individually
+    init_frag = Chem.MolFragmentToSmiles(
+        mol,
+        ids_to_include,
+        isomericSmiles=True,
+        allBondsExplicit=True,
+        allHsExplicit=True,
+    )
+    # assuming that for this task, only the chirality of mapped atoms in the fragment
+    # matters -- need to double check this
+    # Get a list of each mapped atom token in the fragment
+    mapped_atom_tokens = re.findall("\[[0-9]+.*?:[0-9]+\]", init_frag)
+    map_num_to_chi = {
+        int(re.findall("(?<=\[)[0-9]+", token)[0]): ("").join(re.findall("@+H?", token))
+        for token in mapped_atom_tokens
+    }
+    symbols = []
+    for a in mol.GetAtoms():
+        at_tag = ""
+        chi_tag = ""
+        iso_tag = None
+        if a.GetIsotope() != 0:
+            at_tag = a.GetSymbol()
+            iso_tag = a.GetIsotope()
+
+            if iso_tag in map_num_to_chi.keys():
+                chi_tag = map_num_to_chi[iso_tag]
+        else:
+            at_tag = "#{}".format(a.GetAtomicNum())
+
+        if iso_tag is not None:
+            symbol = "[{}{}{}]".format(iso_tag, at_tag, chi_tag)
+        else:
+            symbol = "[{}{}]".format(at_tag, chi_tag)
+        symbols.append(symbol)
+
     return rdmolfiles.MolFragmentToSmiles(
         mol,
         ids_to_include,
@@ -270,11 +477,6 @@ def check_tetrahedral_centers_equivalent(atom1: Chem.Atom, atom2: Chem.Atom) -> 
         if atom2_idx in matched_ids:
             return True
     return False
-
-
-def clear_isotope(mol: Chem.Mol) -> None:
-    for a in mol.GetAtoms():
-        a.SetIsotope(0)
 
 
 def get_changed_atoms(
@@ -321,7 +523,9 @@ def get_changed_atoms(
             continue
         if tag in changed_tag_set:
             continue
-        if prod_tag_counts[tag] > 1 or atoms_are_different(prod_atom, reac_atom):
+        if prod_tag_counts[tag] > 1 or atoms_are_different(
+            prod_atom, reac_atom, skip_smarts_check=True, check_local_stereo=True
+        ):
             changed_atoms.append(reac_atom)
             changed_atom_tags.append(tag)
             changed_tag_set.add(tag)
@@ -343,7 +547,7 @@ def get_changed_atoms(
                 continue
             else:
                 # Make sure chiral change is next to the reaction center and not
-                # a random specifidation (must be CONNECTED to a changed atom)
+                # a random specification (must be CONNECTED to a changed atom)
                 tetra_adj_to_rxn = False
                 for neighbor in ap.GetNeighbors():
                     neighbor_map_num = neighbor.GetAtomMapNum()
@@ -353,6 +557,18 @@ def get_changed_atoms(
                 if tetra_adj_to_rxn:
                     changed_atom_tags.append(atom_tag)
                     changed_atoms.append(ar)
+
+    # Atoms involved in double bonds where stereochemistry changes
+    stereo_double_bonds = get_stereogenic_double_bonds(reactants, products)
+    for bond_map_nums in stereo_double_bonds:
+        for map_num in bond_map_nums:
+            if map_num not in changed_tag_set:
+                # Find the atom with this map number in the reactants
+                atom_to_add = reac_atom_by_tag.get(map_num)
+                if atom_to_add:
+                    changed_atoms.append(atom_to_add)
+                    changed_atom_tags.append(map_num)
+                    changed_tag_set.add(map_num)
 
     return changed_atoms, changed_atom_tags, err
 
@@ -410,7 +626,7 @@ def expand_atoms_to_use(
         for group in groups:
             if int(atom.GetIdx()) in group[0]:
                 for idx in group[1]:
-                    if idx not in atoms_to_use:
+                    if idx not in new_atoms_to_use:
                         new_atoms_to_use.append(idx)
                         symbol_replacements.append(
                             (idx, convert_atom_to_wildcard(mol.GetAtomWithIdx(idx)))
@@ -695,6 +911,14 @@ def get_fragments_for_changed_atoms(
                 symbol_replacements=symbol_replacements,
             )
 
+        # After initial expansion, ensure stereo double bonds are complete
+        atoms_to_use, symbol_replacements = ensure_complete_stereo_double_bonds(
+            mol,
+            atoms_to_use,
+            symbol_replacements,
+            use_stereochemistry=use_stereochemistry,
+        )
+
         if category == "products":
             # Add extra labels to include (for products only)
             if expansion:
@@ -722,128 +946,157 @@ def get_fragments_for_changed_atoms(
         if not atoms_to_use:
             continue
 
+        atoms_to_use = list(dict.fromkeys(atoms_to_use))
+
         # Define new symbols based on symbol_replacements
         symbols = [atom.GetSmarts() for atom in mol.GetAtoms()]
         for i, symbol in symbol_replacements:
             symbols[i] = symbol
 
-        mol_smi_with_maps = Chem.MolToSmiles(mol, True)
-        mol_from_smi_with_maps = Chem.MolFromSmiles(mol_smi_with_maps)
-        if mol_from_smi_with_maps is None:
-            raise ValueError("could not parse molecule SMILES")
-        mols_changed.append(
-            Chem.MolToSmiles(clear_mapnum(mol_from_smi_with_maps), True)
-        )
-
-        # Keep flipping stereocenters until we are happy...
-        # this is a sloppy fix during extraction to achieve consistency
-
-        tetra_consistent = False
-        num_tetra_flips = 0
         mol_without_map_nums = Chem.Mol(mol)
         for a in mol_without_map_nums.GetAtoms():
             a.SetAtomMapNum(0)
-        while not tetra_consistent and num_tetra_flips < 100:
-            mol_copy = Chem.Mol(mol_without_map_nums)
+
+        try:
             this_fragment = rdmolfiles.MolFragmentToSmiles(
-                mol_copy,
+                mol_without_map_nums,
                 atoms_to_use,
                 atomSymbols=symbols,
                 allHsExplicit=True,
                 isomericSmiles=use_stereochemistry,
                 allBondsExplicit=True,
             )
-
-            # Figure out what atom maps are tetrahedral centers
-            # Set isotopes to make sure we're getting the *exact* match we want
-            this_fragment_mol = rdmolfiles.MolFromSmarts(this_fragment)
-            if this_fragment_mol is None:
-                raise ValueError("could not parse fragment SMARTS")
-            tetra_map_nums = []
-            for atom in this_fragment_mol.GetAtoms():
-                atom_map_num = atom.GetAtomMapNum()
-                if atom_map_num:
-                    atom.SetIsotope(atom_map_num)
-                    if atom.GetChiralTag() != Chem.rdchem.ChiralType.CHI_UNSPECIFIED:
-                        tetra_map_nums.append(atom_map_num)
-
-            # If there are no mapped tetrahedral stereocenters in the fragment,
-            # there is nothing to validate/flip via chirality-aware matching.
-            if not tetra_map_nums:
-                tetra_consistent = True
-                break
-            map_to_id = {}
-            for atom in mol.GetAtoms():
-                atom_map_num = atom.GetAtomMapNum()
-                if atom_map_num:
-                    atom.SetIsotope(atom_map_num)
-                    map_to_id[atom_map_num] = atom.GetIdx()
-                else:
-                    atom.SetIsotope(0)
-
-            # Look for matches
-            tetra_consistent = True
-            all_matched_ids = []
-
-            # skip substructure matching if there are a lot of fragments
-            # this can help prevent GetSubstructMatches from hanging
-            frag_smi = Chem.MolToSmiles(this_fragment_mol)
-            if frag_smi.count(".") > 5:
-                break
-
-            for matched_ids in mol.GetSubstructMatches(
-                this_fragment_mol, useChirality=True
-            ):
-                all_matched_ids.extend(matched_ids)
-            random.shuffle(tetra_map_nums)
-            for tetra_map_num in tetra_map_nums:
-                if map_to_id[tetra_map_num] not in all_matched_ids:
-                    tetra_consistent = False
-                    prevsymbol = symbols[map_to_id[tetra_map_num]]
-                    if "@@" in prevsymbol:
-                        symbol = prevsymbol.replace("@@", "@")
-                    elif "@" in prevsymbol:
-                        symbol = prevsymbol.replace("@", "@@")
-                    else:
-                        raise ValueError(
-                            "Need to modify symbol of tetra atom without @ or @@??"
-                        )
-                    symbols[map_to_id[tetra_map_num]] = symbol
-                    num_tetra_flips += 1
-                    # IMPORTANT: only flip one at a time
-                    break
-
-        # else: no mapped tetrahedral centers; fragment is considered consistent.
-
-        if not tetra_consistent:
-            raise ValueError(
-                "Could not find consistent tetrahedral mapping, {} centers".format(
-                    len(tetra_map_nums)
+        except RuntimeError:
+            try:
+                this_fragment = rdmolfiles.MolFragmentToSmiles(
+                    mol_without_map_nums,
+                    atoms_to_use,
+                    atomSymbols=symbols,
+                    allHsExplicit=True,
+                    isomericSmiles=False,
+                    allBondsExplicit=True,
                 )
-            )
+            except RuntimeError as e2:
+                raise e2
+
+        if use_stereochemistry:
+            this_fragment_mol = rdmolfiles.MolFromSmarts(this_fragment)
+            if this_fragment_mol is not None:
+                src_map = {
+                    a.GetAtomMapNum(): a for a in mol.GetAtoms() if a.GetAtomMapNum()
+                }
+                needs_correction = False
+                for frag_atom in this_fragment_mol.GetAtoms():
+                    mapnum = frag_atom.GetAtomMapNum()
+                    if not mapnum:
+                        continue
+                    if (
+                        frag_atom.GetChiralTag()
+                        == Chem.rdchem.ChiralType.CHI_UNSPECIFIED
+                    ):
+                        continue
+                    src_atom = src_map.get(mapnum)
+                    if (
+                        src_atom is None
+                        or src_atom.GetChiralTag()
+                        == Chem.rdchem.ChiralType.CHI_UNSPECIFIED
+                    ):
+                        continue
+                    if atom_chirality_matches(frag_atom, src_atom) == -1:
+                        src_idx = src_atom.GetIdx()
+                        prev = symbols[src_idx]
+                        if "@@" in prev:
+                            symbols[src_idx] = prev.replace("@@", "@")
+                        elif "@" in prev:
+                            symbols[src_idx] = prev.replace("@", "@@")
+                        needs_correction = True
+
+                if needs_correction:
+                    try:
+                        this_fragment = rdmolfiles.MolFragmentToSmiles(
+                            mol_without_map_nums,
+                            atoms_to_use,
+                            atomSymbols=symbols,
+                            allHsExplicit=True,
+                            isomericSmiles=use_stereochemistry,
+                            allBondsExplicit=True,
+                        )
+                    except RuntimeError:
+                        pass
 
         fragments += "(" + this_fragment + ")."
 
     # auxiliary template information: is this an intramolecular reaction or dimerization?
+    mol_copy = Chem.Mol(mol)
+    mols_changed.append(Chem.MolToSmiles(clear_mapnum(mol_copy), True))
+
     intra_only = 1 == len(mols_changed)
     dimer_only = (1 == len(set(mols_changed))) and (len(mols_changed) == 2)
 
     return fragments[:-1], intra_only, dimer_only
 
 
-def canonicalize_transform(transform: str) -> str:
+def split_reaction_smarts(reaction_smarts: str) -> List[str]:
+    reactants = reaction_smarts.split(">>")[0]
+    products = reaction_smarts.split(">>")[1]
+
+    reactant_str_mols_mapping = {
+        reactant: Chem.MolFromSmarts(reactant) for reactant in reactants.split(".")
+    }
+    product_str_mols_mapping = {
+        product: Chem.MolFromSmarts(product) for product in products.split(".")
+    }
+
+    reactant_str_atom_map_nums = {}
+    for reactant_str, reactant_mol in reactant_str_mols_mapping.items():
+        for atom in reactant_mol.GetAtoms():
+            if atom.GetAtomMapNum():
+                if reactant_str not in reactant_str_atom_map_nums:
+                    reactant_str_atom_map_nums[reactant_str] = {atom.GetAtomMapNum()}
+                else:
+                    reactant_str_atom_map_nums[reactant_str].add(atom.GetAtomMapNum())
+
+    product_str_atom_map_nums = {}
+    for product_str, product_mol in product_str_mols_mapping.items():
+        for atom in product_mol.GetAtoms():
+            if atom.GetAtomMapNum():
+                if product_str not in product_str_atom_map_nums:
+                    product_str_atom_map_nums[product_str] = {atom.GetAtomMapNum()}
+                else:
+                    product_str_atom_map_nums[product_str].add(atom.GetAtomMapNum())
+
+    split_smarts = []
+    for reactant_str, reactant_map_nums in reactant_str_atom_map_nums.items():
+        product_smarts = []
+        for product_str, product_map_nums in product_str_atom_map_nums.items():
+            if not product_map_nums.isdisjoint(reactant_map_nums):
+                product_smarts.append(product_str)
+
+        if product_smarts:
+            split_smarts.append(f"{reactant_str}>>{'.'.join(product_smarts)}")
+
+    return split_smarts
+
+
+def canonicalize_transform(transform: str, fix_cycle_chirality: bool = True) -> str:
     """This function takes an atom-mapped SMARTS transform and
     converts it to a canonical form by, if nececssary, rearranging
     the order of reactant and product templates and reassigning
     atom maps."""
 
     transform_reordered = ">>".join(
-        [canonicalize_template(x) for x in transform.split(">>")]
+        [_canonicalize_template(x) for x in transform.split(">>")]
     )
+
+    if fix_cycle_chirality:
+        transform_reordered = invert_chirality_around_unmapped_ring_closure(
+            transform_reordered
+        )
+
     return reassign_atom_mapping(transform_reordered)
 
 
-def canonicalize_template(template: str) -> str:
+def _canonicalize_template(template: str) -> str:
     """This function takes one-half of a template SMARTS string
     (i.e., reactants or products) and re-orders them based on
     an equivalent string without atom mapping."""
@@ -881,10 +1134,11 @@ def canonicalize_template(template: str) -> str:
 
 
 def extract_from_reaction(
-    reaction: Dict[str, Any],
+    reaction: rdChiralTemplateExtractInput,
     no_special_groups: bool = False,
     radius: int = 1,
     use_stereochemistry: bool = True,
+    canonicalize_template: bool = True,
     maximum_number_unmapped_product_atoms: int = 5,
     include_all_unmapped_reactant_atoms: bool = True,
 ) -> ExtractedTemplate:
@@ -894,6 +1148,7 @@ def extract_from_reaction(
         "reactants": "",
         "spectators": "",
         "reaction_smarts": "",
+        "separated_reaction_smarts": [],
         "intra_only": False,
         "dimer_only": False,
         "reaction_id": reaction["_id"],
@@ -1024,12 +1279,16 @@ def extract_from_reaction(
             expansion=expand_changed_atom_tags(changed_atom_tags, reactant_fragments),
             category="products",
         )
+
     except ValueError:
         return default_extracted_template
 
     # Put together and canonicalize (as best as possible)
     rxn_string = "{}>>{}".format(reactant_fragments, product_fragments)
-    rxn_canonical = canonicalize_transform(rxn_string)
+    if canonicalize_template:
+        rxn_canonical = canonicalize_transform(rxn_string)
+    else:
+        rxn_canonical = rxn_string
     # Change from inter-molecular to intra-molecular
     rxn_canonical_split = rxn_canonical.split(">>")
     rxn_canonical = (
@@ -1057,6 +1316,7 @@ def extract_from_reaction(
         "reactants": reactants_string,
         "spectators": spectators_string,
         "reaction_smarts": retro_canonical,
+        "separated_reaction_smarts": split_reaction_smarts(retro_canonical),
         "intra_only": intra_only,
         "dimer_only": dimer_only,
         "reaction_id": reaction["_id"],
@@ -1064,3 +1324,45 @@ def extract_from_reaction(
     }
 
     return template
+
+
+def extract_from_reaction_smiles(
+    rxn_smiles: str,
+    no_special_groups: bool = False,
+    radius: int = 1,
+    use_stereochemistry: bool = True,
+    canonicalize_template: bool = True,
+    maximum_number_unmapped_product_atoms: int = 5,
+    include_all_unmapped_reactant_atoms: bool = True,
+    reaction_id: Optional[str | int] = None,
+) -> ExtractedTemplate:
+    """
+    Extract a reaction template from a reaction SMILES string.
+
+    Args:
+        rxn_smiles: Reaction SMILES string in the format "reactants>>products"
+        reaction_id: Optional reaction ID
+
+    Returns:
+        ExtractedTemplate: The extracted template
+    """
+    if len(rxn_smiles.split(">>")) != 2:
+        raise ValueError("Reaction SMILES must contain exactly one >>")
+
+    reactants = rxn_smiles.split(">>")[0]
+    products = rxn_smiles.split(">>")[1]
+    reaction_dict: rdChiralTemplateExtractInput = {
+        "reactants": reactants,
+        "products": products,
+        "_id": reaction_id,
+    }
+
+    return extract_from_reaction(
+        reaction=reaction_dict,
+        no_special_groups=no_special_groups,
+        radius=radius,
+        use_stereochemistry=use_stereochemistry,
+        canonicalize_template=canonicalize_template,
+        maximum_number_unmapped_product_atoms=maximum_number_unmapped_product_atoms,
+        include_all_unmapped_reactant_atoms=include_all_unmapped_reactant_atoms,
+    )

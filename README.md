@@ -8,16 +8,41 @@
 # rdchiral_plus
 Wrapper for RDKit's RunReactants to improve stereochemistry handling
 
-This repository is a fork of [rdchiral](https://github.com/connorcoley/rdchiral). It has been modified for improved performance, and is statically typed wherever possible so that it can be optionally compiled with [mypyc](https://mypyc.readthedocs.io/en/latest/introduction.html) for faster execution while maintaining consistency with the upstream library. These modifications provide comparable speed to the fast C++ version ([rdchiral_cpp](https://gitlab.com/ljn917/rdchiral_cpp)), with all of the benefits of being written in Python. This library is pip installable and cross platform.
+This repository is a fork of [rdchiral](https://github.com/connorcoley/rdchiral). It has been modified for improved performance while maintaining high consistency with the upstream library. These modifications provide speed that is marginally slower than the fast C++ version ([rdchiral_cpp](https://gitlab.com/ljn917/rdchiral_cpp)), but has the benefits of being written in Python. This library is pip installable cross platform.
+
+The interface (`rdchiralRun`, `rdchiralRunText`, `rdchiralReaction`, `rdchiralReactants`, `rdchiralExtract`, etc.) and returned data structures remain unchanged from the original library, so existing code should work with no modifications. While behavior is mostly consistent with the original library, this fork includes several important fixes and improvements.
+
+## Template application
+
+- **Conjugated system bond direction correction**: Corrects corrupted single-bond directions (ENDUPRIGHT, ENDDOWNRIGHT) in conjugated systems. Implemented from [here](https://github.com/connorcoley/rdchiral/pull/40)
+- **Broader stereochemistry handling**: Stereochemistry for tetrahedral centers with lone pairs is accounted for
+- **One-pot reactions**: Templates are initialized with parentheses where needed so that templates defining multiple reactions on the same product are properly handled
+- **Recursive template application**: Templates can be recursively applied with a max_depth parameter, useful for symmetric reactions, or reactions that occur at multiple sites in a molecule
+
+## Template extraction
+
+- **Configurable template extraction**: Template extraction supports configurable radius and special group handling. Implemented from [here](https://github.com/connorcoley/rdchiral/commit/78bbafaba040678b957497e7f2638e935104e3d7)
+- **Deterministic template extraction**: Replaced random shuffle-based tetrahedral center correction loops with deterministic permutation parity - the old behavior could lead to inconsistent results or hang in rare instances.
+- **Stereochemistry tracking**: Inversions of tetrahedral centers are counted as a changed atom, and included in the extracted template
+- **Spectator tracking**: Spectator molecules are included in extracted template dictionaries
+
+## General
+
+- **Automatic dependency installation**: RDKit is automatically installed as a dependency
 
 
-This library has high consistency with the python rdchiral library, and can be used as a drop in replacement:
+## Consistency with the original library
 
-- rdchiralRun (1000 templates applied to 1000 reactants): 99.98% consistent
-- rdchiralRunText (1000 templates applied to 100 reactants): 99.97% consistent
-- rdchiralExtract (templates extracted from 50,016 mapped reactions): 94.99% consistent
+The changes above result in minor differences in behavior compared to the original library. In most cases where behavior is different, rdchiral_plus produces the more accurate result. The table below shows the roundtripability of extracting a template from atom mapped reaction SMILES, and then applying that template to the product SMILES to recover the expected reactant SMILES. rdchiral_plus reduces the number of incorrect roundtrips by 90% compared to rdchiral, and 94% compared to rdchiral_cpp.
 
-See [here](docs/consistency.md) for details on how consistency is measured against the original library.
+| library | successful roundtrips | success rate |
+| --- | :---: | :---: |
+| rdchiral | 49223 / 50016 | 98.41% |
+| rdchiral_cpp | 48694 / 50016 | 97.36% |
+| rdchiral_plus | 49935 / 50016 | 99.84% |
+
+
+See [here](docs/consistency.md) for details on how consistency is measured against the original library and full details of what changes you can expect compared to the original rdchiral library.
 
 ## Requirements
 
@@ -37,6 +62,8 @@ Or install rdchiral_plus with pip directly from this repo:
 ```bash
 pip install git+https://github.com/denovochem/rdchiral_plus.git
 ```
+
+This fork can be optionally compiled with [mypyc](https://mypyc.readthedocs.io/en/latest/introduction.html). In our testing performance is not noticeably improved, as most of the computationally expensive work in this library is done with rdkit, which is already primarily written in C++.
 
 For mypyc compilation:
 
