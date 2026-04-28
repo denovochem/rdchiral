@@ -10,7 +10,7 @@ Wrapper for RDKit's RunReactants to improve stereochemistry handling
 
 This repository is a fork of [rdchiral](https://github.com/connorcoley/rdchiral). It has been modified for improved performance while maintaining high consistency with the upstream library. These modifications provide speed that is marginally slower than the fast C++ version ([rdchiral_cpp](https://gitlab.com/ljn917/rdchiral_cpp)), but has the benefits of being written in Python. This library is pip installable cross platform.
 
-The interface (`rdchiralRun`, `rdchiralRunText`, `rdchiralReaction`, `rdchiralReactants`, `rdchiralExtract`, etc.) and returned data structures remain largely unchanged from the original library, so existing code should work with minimal or no modifications. While behavior is mostly consistent with the original library, this fork includes several important fixes and improvements:
+The interface (`rdchiralRun`, `rdchiralRunText`, `rdchiralReaction`, `rdchiralReactants`, `rdchiralExtract`, etc.) and returned data structures remain unchanged from the original library, so existing code should work with no modifications. While behavior is mostly consistent with the original library, this fork includes several important fixes and improvements.
 
 ## Template application
 
@@ -33,7 +33,7 @@ The interface (`rdchiralRun`, `rdchiralRunText`, `rdchiralReaction`, `rdchiralRe
 
 ## Consistency with the original library
 
-The changes above result in minor differences in behavior compared to the original library. In most cases where behavior is different, rdchiral_plus produces a more accurate result. The table below shows the roundtripability of atom mapped reaction SMILES -> extracted template -> correctly recovered reactant molecules for each library. rdchiral_plus reduces the number of incorrect roundtrips by 90% compared to rdchiral, and 94% compared to rdchiral_cpp.
+The changes above result in minor differences in behavior compared to the original library. In most cases where behavior is different, rdchiral_plus produces the more accurate result. The table below shows the roundtripability of extracting a template from atom mapped reaction SMILES, and then applying that template to the product SMILES to recover the expected reactant SMILES. rdchiral_plus reduces the number of incorrect roundtrips by 90% compared to rdchiral, and 94% compared to rdchiral_cpp.
 
 | library | successful roundtrips | success rate |
 | --- | :---: | :---: |
