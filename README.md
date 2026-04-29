@@ -12,28 +12,28 @@ This repository is a fork of [rdchiral](https://github.com/connorcoley/rdchiral)
 
 The interface (`rdchiralRun`, `rdchiralRunText`, `rdchiralReaction`, `rdchiralReactants`, `rdchiralExtract`, etc.) and returned data structures remain unchanged from the original library, so existing code should work with no modifications. While behavior is mostly consistent with the original library, this fork includes several important fixes and improvements.
 
-## Template application
+## Changes to template application
 
 - **Conjugated system bond direction correction**: Corrects corrupted single-bond directions (ENDUPRIGHT, ENDDOWNRIGHT) in conjugated systems. Implemented from [here](https://github.com/connorcoley/rdchiral/pull/40)
 - **Broader stereochemistry handling**: Stereochemistry for tetrahedral centers with lone pairs is accounted for
 - **One-pot reactions**: Templates are initialized with parentheses where needed so that templates defining multiple reactions on the same product are properly handled
 - **Recursive template application**: Templates can be recursively applied with a max_depth parameter, useful for symmetric reactions, or reactions that occur at multiple sites in a molecule
 
-## Template extraction
+## Changes to template extraction
 
 - **Configurable template extraction**: Template extraction supports configurable radius and special group handling. Implemented from [here](https://github.com/connorcoley/rdchiral/commit/78bbafaba040678b957497e7f2638e935104e3d7)
-- **Deterministic template extraction**: Replaced random shuffle-based tetrahedral center correction loops with deterministic permutation parity - the old behavior could lead to inconsistent results or hang in rare instances.
+- **Deterministic template extraction**: Replaced random shuffle-based tetrahedral center correction loops with deterministic permutation parity - the old behavior could lead to inconsistent results or appear to hang in rare instances.
 - **Stereochemistry tracking**: Inversions of tetrahedral centers are counted as a changed atom, and included in the extracted template
 - **Spectator tracking**: Spectator molecules are included in extracted template dictionaries
 
-## General
+## General changes
 
 - **Automatic dependency installation**: RDKit is automatically installed as a dependency
 
 
-## Consistency with the original library
+## Consistency with the upstream library
 
-The changes above result in minor differences in behavior compared to the original library. In most cases where behavior is different, rdchiral_plus produces the more accurate result. The table below shows the roundtripability of extracting a template from atom mapped reaction SMILES, and then applying that template to the product SMILES to recover the expected reactant SMILES. rdchiral_plus reduces the number of incorrect roundtrips by 90% compared to rdchiral, and 94% compared to rdchiral_cpp.
+The changes above result in minor differences in behavior compared to the original library. In most cases where behavior is different, rdchiral_plus produces the more accurate result. As an example, the table below shows the roundtrip success rate of extracting a template from an atom mapped reaction SMILES, applying that template to the product SMILES, and then recovering the expected reactant SMILES. rdchiral_plus reduces the number of incorrect roundtrips by 90% compared to rdchiral, and 94% compared to rdchiral_cpp.
 
 | library | successful roundtrips | success rate |
 | --- | :---: | :---: |
