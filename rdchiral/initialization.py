@@ -3,7 +3,6 @@ from typing import Dict, List, Optional, Set, Tuple
 import rdkit.Chem as Chem
 import rdkit.Chem.AllChem as AllChem
 from rdkit.Chem import rdChemReactions, rdmolops
-from rdkit.Chem.MolStandardize import rdMolStandardize
 from rdkit.Chem.rdchem import BondDir, ChiralType
 
 from rdchiral.bonds import (
@@ -17,8 +16,6 @@ BondDirOpposite = {
     AllChem.BondDir.ENDUPRIGHT: AllChem.BondDir.ENDDOWNRIGHT,
     AllChem.BondDir.ENDDOWNRIGHT: AllChem.BondDir.ENDUPRIGHT,
 }
-
-TAUTOMER_ENUMERATOR = rdMolStandardize.TautomerEnumerator()
 
 
 class rdchiralReaction(object):
@@ -578,19 +575,6 @@ def initialize_rxn_from_smarts(
         )
 
     return rxn
-
-
-def _enumerate_tautomers(mol: Chem.Mol) -> List[Chem.Mol]:
-    """
-    Enumerate tautomers for a molecule.
-
-    Args:
-        mol (Chem.Mol): Molecule to enumerate tautomers for.
-
-    Returns:
-        List[Chem.Mol]: List of tautomers.
-    """
-    return list(TAUTOMER_ENUMERATOR.Enumerate(mol))
 
 
 def _fully_initialize_reactants_from_mol(reactants: Chem.Mol) -> Chem.Mol:

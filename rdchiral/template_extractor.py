@@ -4,13 +4,10 @@ from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
 from rdkit import Chem
 from rdkit.Chem import rdChemReactions, rdmolfiles
-from rdkit.Chem.MolStandardize import rdMolStandardize
 from rdkit.Chem.rdchem import BondStereo, BondType, ChiralType
 
 from rdchiral.chiral import atom_chirality_matches
 from rdchiral.utils import atoms_are_different
-
-TAUTOMER_ENUMERATOR = rdMolStandardize.TautomerEnumerator()
 
 
 class ExtractedTemplate(TypedDict):
@@ -240,9 +237,7 @@ def invert_chirality_around_unmapped_ring_closure(smarts: str) -> str:
     )
 
 
-def mols_from_smiles_list(
-    all_smiles: List[str], canonicalize_tautomers: bool = False
-) -> List[Chem.Mol]:
+def mols_from_smiles_list(all_smiles: List[str]) -> List[Chem.Mol]:
     """
     Convert a list of SMILES strings to RDKit molecules.
 
@@ -251,8 +246,6 @@ def mols_from_smiles_list(
 
     Args:
         all_smiles (List[str]): A list of SMILES strings to convert.
-        canonicalize_tautomers (bool): If True, canonicalize tautomeric forms.
-            Defaults to False.
 
     Returns:
         List[Chem.Mol]: A list of RDKit molecules. None values may be
@@ -263,8 +256,6 @@ def mols_from_smiles_list(
         if not smiles:
             continue
         mol = Chem.MolFromSmiles(smiles)
-        if canonicalize_tautomers and mol is not None:
-            mol = TAUTOMER_ENUMERATOR.Canonicalize(mol)
         mols.append(mol)
     return mols
 
@@ -1562,7 +1553,6 @@ def extract_from_reaction(
     radius: int = 1,
     use_stereochemistry: bool = True,
     canonicalize_template: bool = True,
-    canonicalize_tautomers: bool = False,
     maximum_number_unmapped_product_atoms: int = 5,
     include_all_unmapped_reactant_atoms: bool = True,
 ) -> ExtractedTemplate:
@@ -1586,8 +1576,6 @@ def extract_from_reaction(
             the extracted template. Defaults to True.
         canonicalize_template (bool): If True, canonicalize the reaction SMARTS
             string for consistent representation. Defaults to True.
-        canonicalize_tautomers (bool): If True, canonicalize tautomeric forms during
-            molecule conversion. Defaults to False.
         maximum_number_unmapped_product_atoms (int): Maximum allowed number of
             unmapped atoms in the products. Reactions exceeding this limit are
             skipped. Defaults to 5.
@@ -1641,12 +1629,10 @@ def extract_from_reaction(
     }
 
     reactants = mols_from_smiles_list(
-        replace_deuterated(reaction["reactants"]).split("."),
-        canonicalize_tautomers=canonicalize_tautomers,
+        replace_deuterated(reaction["reactants"]).split(".")
     )
     products = mols_from_smiles_list(
-        replace_deuterated(reaction["products"]).split("."),
-        canonicalize_tautomers=canonicalize_tautomers,
+        replace_deuterated(reaction["products"]).split(".")
     )
 
     # if rdkit cant understand molecule, return
