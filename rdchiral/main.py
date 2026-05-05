@@ -103,9 +103,11 @@ def rdchiralRunText(
         reactant_smiles (str): Reactant SMILES string used to initialize `rdchiralReactants`.
         custom_reactant_mapping (bool): If True, assume the input reactants already contain
             an atom-mapping that should be preserved/used.
-        keep_mapnums (bool): If True, preserve atom-map numbers in returned product SMILES.
-        combine_enantiomers (bool): If True, attempt to combine enantiomeric outcomes into
-            racemic outcomes.
+        keep_mapnums (bool): If True, preserve atom map numbers in returned product SMILES.
+        combine_enantiomers (bool): If True, combine enantiomeric outcomes into their
+            achiral racemic equivalents, removing the individual enantiomers. If False,
+            enantiomers are retained and their achiral racemic forms are also appended
+            to the results.
         return_mapped (bool): If True, also return per-outcome atom-mapped information.
         max_depth (int): Maximum number of iterative depth levels to explore (default: 1).
         max_products (int): Maximum number of products to return (default: 100).
@@ -154,8 +156,10 @@ def rdchiral_step(
         keep_mapnums (bool): If False, clear atom-map numbers from returned product
             SMILES. If True, preserve map numbers; atoms that are unmapped in the
             product may be assigned new map numbers (implementation-dependent).
-        combine_enantiomers (bool): If True, attempt to combine enantiomeric outcomes
-            into racemic outcomes.
+        combine_enantiomers (bool): If True, combine enantiomeric outcomes into their
+            achiral racemic equivalents, removing the individual enantiomers. If False,
+            enantiomers are retained and their achiral racemic forms are also appended
+            to the results.
         skip_reset (bool): If True, skip resetting the reaction object before running.
 
     Returns:
@@ -207,6 +211,9 @@ def rdchiral_step(
 
     if combine_enantiomers:
         final_outcomes, _ = combine_enantiomers_into_racemic(final_outcomes)
+    else:
+        _, combined_dict = combine_enantiomers_into_racemic(set(final_outcomes))
+        final_outcomes.update(combined_dict.values())
 
     return list(final_outcomes)
 
@@ -230,8 +237,10 @@ def rdchiral_step_return_mapped(
         keep_mapnums (bool): If False, clear atom-map numbers from returned product
             SMILES. If True, preserve map numbers; atoms that are unmapped in the
             product may be assigned new map numbers (implementation-dependent).
-        combine_enantiomers (bool): If True, attempt to combine enantiomeric outcomes
-            into racemic outcomes.
+        combine_enantiomers (bool): If True, combine enantiomeric outcomes into their
+            achiral racemic equivalents, removing the individual enantiomers. If False,
+            enantiomers are retained and their achiral racemic forms are also appended
+            to the results.
         skip_reset (bool): If True, skip resetting the reaction object before running.
 
     Returns:
@@ -288,12 +297,33 @@ def rdchiral_step_return_mapped(
         final_outcomes, modified_smiles_dict = combine_enantiomers_into_racemic(
             final_outcomes
         )
-
-        mapped_outcomes = fix_return_mapped_dict_enantiomers(
-            all_products=mapped_outcomes,
-            modified_smiles_dict=modified_smiles_dict,
-            keep_mapnums=keep_mapnums,
-        )
+        added_achiral = set()
+        for chiral_smiles, achiral_smiles in modified_smiles_dict.items():
+            if chiral_smiles not in mapped_outcomes:
+                continue
+            if achiral_smiles not in added_achiral:
+                chiral_other, atoms_changed = mapped_outcomes.pop(chiral_smiles)
+                mol = Chem.MolFromSmiles(chiral_other)
+                Chem.RemoveStereochemistry(mol)
+                achiral_other = Chem.MolToSmiles(mol, True)
+                mapped_outcomes[achiral_smiles] = (achiral_other, atoms_changed)
+                added_achiral.add(achiral_smiles)
+            else:
+                del mapped_outcomes[chiral_smiles]
+    else:
+        _, combined_dict = combine_enantiomers_into_racemic(set(final_outcomes))
+        final_outcomes.update(combined_dict.values())
+        added_achiral = set()
+        for chiral_smiles, achiral_smiles in combined_dict.items():
+            if achiral_smiles in added_achiral or achiral_smiles in mapped_outcomes:
+                continue
+            if chiral_smiles in mapped_outcomes:
+                chiral_mapped, atoms_changed = mapped_outcomes[chiral_smiles]
+                mol = Chem.MolFromSmiles(chiral_mapped)
+                Chem.RemoveStereochemistry(mol)
+                achiral_mapped = Chem.MolToSmiles(mol, True)
+                mapped_outcomes[achiral_smiles] = (achiral_mapped, atoms_changed)
+                added_achiral.add(achiral_smiles)
 
     return (list(final_outcomes), mapped_outcomes)
 
@@ -319,7 +349,10 @@ def rdchiralRun(
         rxn (rdchiralReaction): The reaction template to apply.
         reactants (rdchiralReactants): The initial reactants to start the iteration.
         keep_mapnums (bool): If True, preserve atom map numbers in the output SMILES.
-        combine_enantiomers (bool): If True, combine enantiomeric products into racemic mixtures.
+        combine_enantiomers (bool): If True, combine enantiomeric outcomes into their
+            achiral racemic equivalents, removing the individual enantiomers. If False,
+            enantiomers are retained and their achiral racemic forms are also appended
+            to the results.
         return_mapped (bool): If True, return a mapping between mapped and unmapped SMILES
             along with atom change information.
         skip_reset (bool): If True, skip resetting the reaction object state. Ignored if
@@ -432,17 +465,48 @@ def rdchiralRun(
     else:
         final_smiles_list = list(set([mapped for mapped in all_products.keys()]))
 
+    _, combined_enantiomers_dict = combine_enantiomers_into_racemic(
+        set(final_smiles_list)
+    )
+
     if combine_enantiomers:
-        final_smiles_set, modified_smiles_dict = combine_enantiomers_into_racemic(
-            set(final_smiles_list)
+        final_smiles_list = list(
+            set(combined_enantiomers_dict.values())
+            | (set(final_smiles_list) - set(combined_enantiomers_dict.keys()))
         )
-        final_smiles_list = list(final_smiles_set)
+        modified_smiles_dict = combined_enantiomers_dict
+    else:
+        final_smiles_list.extend(list(set(combined_enantiomers_dict.values())))
+        added_achiral = set()
+        for chiral_smiles, achiral_smiles in combined_enantiomers_dict.items():
+            if achiral_smiles in added_achiral:
+                continue
+            if keep_mapnums:
+                if chiral_smiles in all_products:
+                    _, changes = all_products[chiral_smiles]
+                    all_products[achiral_smiles] = (
+                        strip_map_numbers_from_smiles(achiral_smiles),
+                        changes,
+                    )
+                    added_achiral.add(achiral_smiles)
+            else:
+                for mapped_key, (unmapped_val, changes) in all_products.items():
+                    if unmapped_val == chiral_smiles:
+                        mol = Chem.MolFromSmiles(mapped_key)
+                        Chem.RemoveStereochemistry(mol)
+                        achiral_mapped = Chem.MolToSmiles(mol, True)
+                        all_products[achiral_mapped] = (achiral_smiles, changes)
+                        added_achiral.add(achiral_smiles)
+                        break
+        modified_smiles_dict = {}
 
     all_products = fix_return_mapped_dict_enantiomers(
         all_products=all_products,
         modified_smiles_dict=modified_smiles_dict,
         keep_mapnums=keep_mapnums,
     )
+
+    final_smiles_list = list(set(final_smiles_list))
 
     if return_mapped:
         if not keep_mapnums:
@@ -476,14 +540,19 @@ def fix_return_mapped_dict_enantiomers(
 
     Args:
         all_products (Dict[str, Tuple[str, _ChangesT]]):
-            Dictionary mapping a product SMILES to a tuple of (unmapped SMILES,
-            stereochemical changes). When `keep_mapnums` is True, the key is the
-            mapped SMILES; otherwise it is the unmapped SMILES.
+            Dictionary mapping a product mapped SMILES to a tuple of (unmapped SMILES,
+            stereochemical changes). The key is always the mapped SMILES; when
+            `keep_mapnums` is True, `modified_smiles_dict` keys are mapped SMILES
+            and are matched against the key; when False, `modified_smiles_dict` keys
+            are unmapped SMILES and are matched against value[0].
         modified_smiles_dict (Dict[str, str]): Mapping from original stereoisomeric
             SMILES to the racemic/achiral SMILES that replaced them, as returned by
             `combine_enantiomers_into_racemic`.
-        keep_mapnums (bool): If True, inspect the mapped (key) SMILES for replacements;
-            otherwise inspect the unmapped SMILES value.
+        keep_mapnums (bool): If True, match replacement lookup against the mapped key
+            SMILES and use the mapped achiral SMILES as both the new key and value[0].
+            If False, match against the unmapped value[0], derive the achiral mapped
+            SMILES by stripping stereochemistry from the chiral mapped key, and use
+            that as the new key with the achiral unmapped SMILES as value[0].
 
     Returns:
         Dict[str, Tuple[str, _ChangesT]]: The updated `all_products` dictionary with
@@ -504,12 +573,11 @@ def fix_return_mapped_dict_enantiomers(
                 keys_to_delete.append(mapped)
         else:
             if unmapped in modified_smiles_dict:
-                keys_to_add.append(
-                    (
-                        modified_smiles_dict[unmapped],
-                        (modified_smiles_dict[unmapped], changes),
-                    )
-                )
+                achiral_unmapped = modified_smiles_dict[unmapped]
+                mol = Chem.MolFromSmiles(mapped)
+                Chem.RemoveStereochemistry(mol)
+                achiral_mapped = Chem.MolToSmiles(mol, True)
+                keys_to_add.append((achiral_mapped, (achiral_unmapped, changes)))
                 keys_to_delete.append(mapped)
 
     for key in keys_to_delete:

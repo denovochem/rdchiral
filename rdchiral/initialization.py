@@ -3,6 +3,7 @@ from typing import Dict, List, Optional, Set, Tuple
 import rdkit.Chem as Chem
 import rdkit.Chem.AllChem as AllChem
 from rdkit.Chem import rdChemReactions, rdmolops
+from rdkit.Chem.MolStandardize import rdMolStandardize
 from rdkit.Chem.rdchem import BondDir, ChiralType
 
 from rdchiral.bonds import (
@@ -16,6 +17,8 @@ BondDirOpposite = {
     AllChem.BondDir.ENDUPRIGHT: AllChem.BondDir.ENDDOWNRIGHT,
     AllChem.BondDir.ENDDOWNRIGHT: AllChem.BondDir.ENDUPRIGHT,
 }
+
+TAUTOMER_ENUMERATOR = rdMolStandardize.TautomerEnumerator()
 
 
 class rdchiralReaction(object):
@@ -41,8 +44,6 @@ class rdchiralReaction(object):
     """
 
     def __init__(self, reaction_smarts: str, lazy_init: bool = True):
-        # Keep smarts, useful for reporting
-
         split_reaction_smarts = reaction_smarts.split(">>")
         # Treat as pseudo-intramolecular, so that reactions with multiple reacting centers can work
         if "." in split_reaction_smarts[0]:
@@ -362,6 +363,7 @@ class rdchiralReactants(object):
         reactant_smiles: str,
         custom_reactant_mapping: bool = False,
         lazy_init: bool = True,
+        enumerate_tautomers: bool = False,
     ):
         # Keep original smiles, useful for reporting
         self.reactant_smiles: str = reactant_smiles
@@ -576,6 +578,19 @@ def initialize_rxn_from_smarts(
         )
 
     return rxn
+
+
+def _enumerate_tautomers(mol: Chem.Mol) -> List[Chem.Mol]:
+    """
+    Enumerate tautomers for a molecule.
+
+    Args:
+        mol (Chem.Mol): Molecule to enumerate tautomers for.
+
+    Returns:
+        List[Chem.Mol]: List of tautomers.
+    """
+    return list(TAUTOMER_ENUMERATOR.Enumerate(mol))
 
 
 def _fully_initialize_reactants_from_mol(reactants: Chem.Mol) -> Chem.Mol:
