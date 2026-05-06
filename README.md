@@ -14,14 +14,14 @@ The interface (`rdchiralRun`, `rdchiralRunText`, `rdchiralReaction`, `rdchiralRe
 
 ## Changes to template application
 
-- **Conjugated system bond direction correction**: Corrects corrupted single-bond directions (ENDUPRIGHT, ENDDOWNRIGHT) in conjugated systems. Implemented from [here](https://github.com/connorcoley/rdchiral/pull/40)
+- **[Fix cis/trans outcomes for conjugated systems](https://github.com/connorcoley/rdchiral/pull/40)**: Fixes incorrect cis/trans outcomes for conjugated systems that could previously depend on atom numbering. In particular, when a template only specifies part of a conjugated system, the copied double-bond stereo directions may need to be reversed consistently
 - **Broader stereochemistry handling**: Stereochemistry for tetrahedral centers with lone pairs is accounted for
-- **One-pot reactions**: Templates are initialized with parentheses where needed so that templates defining multiple reactions on the same product are properly handled
+- **One-pot reactions**: Templates defining multiple reactions on the same product are now properly handled by initializing templates with parentheses where needed
 - **Recursive template application**: Templates can be recursively applied with a max_depth parameter, useful for symmetric reactions, or reactions that occur at multiple sites in a molecule
 
 ## Changes to template extraction
 
-- **Configurable template extraction**: Template extraction supports configurable radius and special group handling. Implemented from [here](https://github.com/connorcoley/rdchiral/commit/78bbafaba040678b957497e7f2638e935104e3d7)
+- **[Configurable template extraction](https://github.com/connorcoley/rdchiral/commit/78bbafaba040678b957497e7f2638e935104e3d7)**: Extends template extraction to support a configurable fragment `radius` and an option to disable matching/including “special groups” (`no_special_groups`), which can change which atoms are included in extracted fragments.
 - **Deterministic template extraction**: Replaced random shuffle-based tetrahedral center correction loops with deterministic permutation parity - the old behavior could lead to inconsistent results or appear to hang in rare instances.
 - **Stereochemistry tracking**: Inversions of tetrahedral centers are counted as a changed atom, and included in the extracted template
 - **Spectator tracking**: Spectator molecules are included in extracted template dictionaries

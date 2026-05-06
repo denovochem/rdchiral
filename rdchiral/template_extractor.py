@@ -1125,6 +1125,8 @@ def get_strict_smarts_for_atom(
                     symbol = symbol.replace(":", ";{}:".format(tag))
                 else:
                     symbol = symbol.replace("]", ";{}]".format(tag))
+    else:
+        symbol = symbol.replace("@@", "").replace("@", "")
 
     if "H" not in symbol:
         H_symbol = "H{}".format(atom.GetTotalNumHs())
