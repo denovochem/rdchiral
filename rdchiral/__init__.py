@@ -4,7 +4,10 @@ from rdkit import RDLogger
 
 from rdchiral.initialization import rdchiralReactants, rdchiralReaction
 from rdchiral.main import rdchiralRun, rdchiralRunText
-from rdchiral.template_extractor import extract_from_reaction
+from rdchiral.template_extractor import (
+    extract_from_reaction,
+    extract_from_reaction_smiles,
+)
 
 lg = RDLogger.logger()
 lg.setLevel(RDLogger.CRITICAL)
@@ -15,6 +18,7 @@ __all__ = [
     "rdchiralReaction",
     "rdchiralReactants",
     "extract_from_reaction",
+    "extract_from_reaction_smiles",
 ]
 
 try:

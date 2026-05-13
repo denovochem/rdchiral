@@ -41,8 +41,6 @@ class rdchiralReaction(object):
     """
 
     def __init__(self, reaction_smarts: str, lazy_init: bool = True):
-        # Keep smarts, useful for reporting
-
         split_reaction_smarts = reaction_smarts.split(">>")
         # Treat as pseudo-intramolecular, so that reactions with multiple reacting centers can work
         if "." in split_reaction_smarts[0]:
@@ -362,6 +360,7 @@ class rdchiralReactants(object):
         reactant_smiles: str,
         custom_reactant_mapping: bool = False,
         lazy_init: bool = True,
+        enumerate_tautomers: bool = False,
     ):
         # Keep original smiles, useful for reporting
         self.reactant_smiles: str = reactant_smiles
