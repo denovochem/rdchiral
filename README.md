@@ -33,13 +33,13 @@ The interface (`rdchiralRun`, `rdchiralRunText`, `rdchiralReaction`, `rdchiralRe
 
 ## Consistency with the upstream library
 
-The changes above result in minor differences in behavior compared to the original library. In most cases where behavior is different, rdchiral_plus produces the more accurate result. As an example, the table below shows the roundtrip success rate of extracting a template from an atom mapped reaction SMILES, applying that template to the product SMILES, and then recovering the expected reactant SMILES. rdchiral_plus reduces the number of incorrect roundtrips by 90% compared to rdchiral, and 94% compared to rdchiral_cpp.
+The changes above result in minor differences in behavior compared to the original library. In most cases where behavior is different, rdchiral_plus produces the more accurate result. As an example, the table below shows the roundtrip success rate of extracting a template from an atom mapped reaction SMILES, applying that template to the product SMILES, and then recovering the expected reactant SMILES. rdchiral_plus reduces the number of incorrect roundtrips by 96% compared to rdchiral, and 98% compared to rdchiral_cpp.
 
 | library | successful roundtrips | success rate |
 | --- | :---: | :---: |
 | rdchiral | 49223 / 50016 | 98.41% |
 | rdchiral_cpp | 48694 / 50016 | 97.36% |
-| rdchiral_plus | 49935 / 50016 | 99.84% |
+| rdchiral_plus | 49988 / 50016 | 99.94% |
 
 
 See [here](docs/consistency.md) for details on how consistency is measured against the original library and full details of what changes you can expect compared to the original rdchiral library.

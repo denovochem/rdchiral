@@ -34,16 +34,6 @@ Issues = "https://github.com/denovochem/rdchiral_plus/issues"
 where = ["."]
 include = ["rdchiral*"]
 
-[tool.cibuildwheel]
-build = "cp39-* cp310-* cp311-* cp312-* cp313-*"
-skip = "pp* *-musllinux_* *-win32 *_i686"
-
-[tool.cibuildwheel.linux]
-manylinux-x86_64-image = "manylinux_2_28"
-manylinux-aarch64-image = "manylinux_2_28"
-
-[tool.cibuildwheel.environment]
-RDCHIRAL_USE_MYPYC = "1"
 
 [dependency-groups]
 dev = [

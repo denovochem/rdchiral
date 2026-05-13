@@ -837,9 +837,9 @@ def handle_outcomes(
         # This is for a template like this:
         # "[c;D3;+0:1]-[N;H0;D3;+1:2](-[O;H0;D1;-1])=[O;H0;D1;+0]>>[c;H1,H2;D3;+0:1]-[N;H2;D1;+0:2]"
         # applied to TNT
-        logger.warning(
-            f"Potential problem detected: {Chem.DetectChemistryProblems(merged_outcome)}"
-        )
+        # logger.warning(
+        #     f"Potential problem detected: {Chem.DetectChemistryProblems(merged_outcome)}"
+        # )
         return None, None
 
     return (smiles_new, (mapped_outcome, atoms_changed))
